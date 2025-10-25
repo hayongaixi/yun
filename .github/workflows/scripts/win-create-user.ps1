@@ -15,11 +15,9 @@ try {
     # 1. 导入国际设置模块
     Import-Module International -ErrorAction Stop
 
-    # 2. 设置系统首选语言为中文（简体）
+    # 2. 设置系统首选语言为中文（简体）- 移除无效的 Speech/Handwriting 属性赋值
     Write-Host "设置系统语言为中文（简体）..."
     $chineseLang = New-WinUserLanguageList -Language "zh-CN"
-    $chineseLang[0].Handwriting = $false  # 禁用手写（可选）
-    $chineseLang[0].Speech = $false       # 禁用语音（可选）
     Set-WinUserLanguageList -LanguageList $chineseLang -Force -ErrorAction Stop
 
     # 3. 设置区域格式为中文（中国）
@@ -64,7 +62,7 @@ try {
     Add-LocalGroupMember -Group "Administrators" -Member $userName -ErrorAction Stop
     Add-LocalGroupMember -Group "Remote Desktop Users" -Member $userName -ErrorAction Stop
 
-    # 5. 记录凭据到 GitHub 环境变量（修正原脚本中的用户名不一致问题）
+    # 5. 记录凭据到 GitHub 环境变量
     Write-Host "记录登录凭据..."
     echo "RDP_CREDS=User: $userName | Password: $plainPassword" >> $env:GITHUB_ENV
 
