@@ -1,4 +1,4 @@
-name: macOS VNC Server (Fix Connection Refused)
+name: macOS VNC + Tailscale (Working Version)
 
 on:
   workflow_dispatch:
@@ -9,44 +9,31 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: 启动VNC服务并开放端口
+      - name: 启用屏幕共享（VNC）
         run: |
-          # 停止旧服务
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -stop -agent
-          # 配置VNC（一行命令确保参数正确）
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -allowAccessFor -allUsers -clientopts -setvnclegacy yes -setvncpw temp1234
-          # 生成随机密码
+          # 启用macOS内置屏幕共享（VNC服务）
+          sudo defaults write /var/db/launchd.db/com.apple.launchd/overrides.plist com.apple.screensharing -dict Disabled -bool false
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          # 为runner用户设置VNC密码
           VNC_PASS=$(openssl rand -hex 6)
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvncpw "$VNC_PASS"
+          echo "password $VNC_PASS" | sudo tee ~/.vnc/passwd > /dev/null
+          sudo chmod 600 ~/.vnc/passwd
           echo "VNC_PASSWORD=$VNC_PASS" >> $GITHUB_ENV
           echo "VNC_USER=runner" >> $GITHUB_ENV
-          # 重启服务
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
 
-      - name: 开放防火墙并检查端口
-        run: |
-          # 关闭防火墙（临时测试）
-          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
-          # 检查5900端口是否监听
-          echo "5900端口监听状态："
-          lsof -i :5900
-          # 检查VNC进程
-          echo "VNC进程状态："
-          pgrep ARDAgent && echo "ARDAgent运行中"
-
-      - name: 启动Tailscale并检查网络
+      - name: 安装并启动Tailscale
         run: |
           brew install tailscale
           sudo nohup /opt/homebrew/opt/tailscale/bin/tailscaled > /tmp/tailscaled.log 2>&1 &
           sleep 3
-          sudo /opt/homebrew/bin/tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }}
-          TAILSCALE_IP=$(sudo /opt/homebrew/bin/tailscale ip -4)
-          echo "TAILSCALE_IP=$TAILSCALE_IP" >> $GITHUB_ENV
-          # 本地ping测试（在runner内部ping自己的Tailscale IP，确认网络正常）
-          ping -c 3 $TAILSCALE_IP
+          sudo /opt/homebrew/bin/tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=macos-vnc-working-${GITHUB_RUN_ID}
+          echo "TAILSCALE_IP=$(sudo /opt/homebrew/bin/tailscale ip -4)" >> $GITHUB_ENV
 
-      - name: 访问信息
+      - name: 显示访问信息
         run: |
-          echo "地址: $TAILSCALE_IP:5900 | 用户名: runner | 密码: $VNC_PASSWORD"
-          echo "如果连接被拒绝，检查上述步骤中'5900端口监听状态'和'Tailscale ping测试'是否正常"
+          echo "=== 最终访问信息 ==="
+          echo "VNC地址: $TAILSCALE_IP:5900"
+          echo "用户名: $VNC_USER"
+          echo "密码: $VNC_PASSWORD"
+          echo "===================="
           while true; do sleep 300; done
