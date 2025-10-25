@@ -12,41 +12,46 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Generate Random VNC Password
+      - name: Enable Screen Sharing (VNC)
         run: |
-          export VNC_PASSWORD=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 8)
-          echo "VNC_PASSWORD=${VNC_PASSWORD}" >> "$GITHUB_ENV"
-
-      - name: Enable Remote Management and Set VNC Password
-        env:
-          VNC_PASSWORD: ${{ env.VNC_PASSWORD }}
-        run: |
-          osascript -e 'tell application "System Events" to set remote login to true'
-          sudo defaults write /Library/Preferences/com.apple.RemoteManagement.plist VNCPassword -string "${VNC_PASSWORD}"
-          killall SystemUIServer
+          # 启用系统VNC服务
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on \
+            -configure -allowAccessFor -allUsers -configure -restart -agent -privs -all
+          
+          # 生成随机VNC密码
+          VNC_PASS=$(LC_CTYPE=C tr -dc 'A-Za-z0-9!@#$%^&*' </dev/urandom | head -c 16)
+          echo "VNC_PASSWORD=$VNC_PASS" >> "$GITHUB_ENV"
+          
+          # 设置VNC密码
+          echo -n "$VNC_PASS" | sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes \
+            -configure -clientopts -setvncpw -vncpw -
+          
+          # 确保VNC服务启动
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
 
       - name: Install Tailscale
         run: |
-          curl -fsSL https://tailscale.com/install.sh | sh
+          # 安装Tailscale
+          brew install tailscale
+          
+          # 启动Tailscale服务
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-macos-runner-${GITHUB_RUN_ID}
+          
+          # 获取Tailscale IP
+          TAILSCALE_IP=$(tailscale ip -4)
+          echo "TAILSCALE_IP=$TAILSCALE_IP" >> "$GITHUB_ENV"
 
-      - name: Connect to Tailscale
+      - name: Verify VNC Service
         run: |
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-${GITHUB_RUN_ID}
-          echo "TAILSCALE_IP=$(tailscale ip -4)" >> "$GITHUB_ENV"
+          # 检查VNC端口是否监听
+          lsof -i :5900 || true
+          nc -z -v "$TAILSCALE_IP" 5900
 
-      - name: Verify VNC Connection
-        run: |
-          if nc -z -v "$TAILSCALE_IP" 5900; then
-            echo "VNC connection verified!"
-          else
-            echo "VNC connection failed."
-            exit 1
-          fi
-
-      - name: Maintain Connection
+      - name: Keep Connection Alive
         run: |
           echo "=== VNC ACCESS INFORMATION ==="
-          echo "Address: ${TAILSCALE_IP}:5900"
+          echo "Address: vnc://${TAILSCALE_IP}:5900"
+          echo "Username: runner"
           echo "Password: ${VNC_PASSWORD}"
           echo "Desktop: macOS"
           echo "=============================="
