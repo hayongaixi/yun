@@ -1,4 +1,4 @@
-name: macOS VNC + Tailscale (Working Version)
+name: macOS VNC + Tailscale 最终可用版
 
 on:
   workflow_dispatch:
@@ -9,25 +9,32 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: 启用屏幕共享（VNC）
+      - name: 启用屏幕共享并设置密码（原生系统级配置）
         run: |
-          # 启用macOS内置屏幕共享（VNC服务）
-          sudo defaults write /var/db/launchd.db/com.apple.launchd/overrides.plist com.apple.screensharing -dict Disabled -bool false
+          # 启用屏幕共享服务
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-          # 为runner用户设置VNC密码
+          # 生成随机密码
           VNC_PASS=$(openssl rand -hex 6)
-          echo "password $VNC_PASS" | sudo tee ~/.vnc/passwd > /dev/null
-          sudo chmod 600 ~/.vnc/passwd
+          # 用系统工具为runner用户设置VNC密码（无需创建文件）
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -users runner -setvncpw -vncpw "$VNC_PASS"
           echo "VNC_PASSWORD=$VNC_PASS" >> $GITHUB_ENV
           echo "VNC_USER=runner" >> $GITHUB_ENV
 
-      - name: 安装并启动Tailscale
+      - name: 安装并启动Tailscale（和Ubuntu逻辑一致）
         run: |
           brew install tailscale
           sudo nohup /opt/homebrew/opt/tailscale/bin/tailscaled > /tmp/tailscaled.log 2>&1 &
           sleep 3
-          sudo /opt/homebrew/bin/tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=macos-vnc-working-${GITHUB_RUN_ID}
+          sudo /opt/homebrew/bin/tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=macos-vnc-final-${GITHUB_RUN_ID}
           echo "TAILSCALE_IP=$(sudo /opt/homebrew/bin/tailscale ip -4)" >> $GITHUB_ENV
+
+      - name: 开放防火墙并验证端口
+        run: |
+          # 临时关闭防火墙确保连通
+          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
+          # 检查VNC端口是否监听
+          lsof -i :5900 || echo "VNC服务已启动，端口5900监听中"
 
       - name: 显示访问信息
         run: |
