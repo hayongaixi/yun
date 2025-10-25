@@ -1,4 +1,4 @@
-name: macOS VNC Server (Force Auth)
+name: macOS VNC Server (Simplified Fixed)
 
 on:
   workflow_dispatch:
@@ -12,54 +12,42 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 彻底重置并配置VNC服务（核心修复）
+      - name: 简化版配置VNC服务（无复杂格式转换）
         run: |
-          # 1. 停止所有远程管理服务
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -stop -agent -console
+          # 1. 停止服务
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -stop -agent
           
-          # 2. 强制修改配置文件，开启VNC密码认证
-          sudo defaults write /Library/Preferences/com.apple.RemoteManagement.plist "VNCPassword" -data "$(echo -n "tempvncpw" | xxd -p | sed 's/../0x& /g')"
-          sudo defaults write /Library/Preferences/com.apple.RemoteManagement.plist "VNCAlwaysStartOnConsole" -bool true
-          sudo defaults write /Library/Preferences/com.apple.RemoteManagement.plist "AllowVNCRequests" -bool true
-          
-          # 3. 配置runner用户为管理员（临时提升权限，解决授权问题）
-          sudo dscl . -append /Groups/admin GroupMembership runner
-          
-          # 4. 重启服务并强制应用配置
+          # 2. 直接用系统默认方式开启VNC（避免手动改plist）
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate \
-            -configure -access -on \
             -configure -allowAccessFor -allUsers \
-            -privs -all \
-            -restart -agent -console
-
-      - name: 生成并设置VNC密码（独立于系统密码）
-        run: |
+            -setvncpw -vncpw "temp1234"  # 临时密码，后续会替换
+            -setvnclegacy -vnclegacy yes  # 强制启用传统VNC认证（兼容客户端）
+          
+          # 3. 生成随机密码并直接生效
           VNC_PASS=$(openssl rand -hex 6)
-          # 用底层命令直接设置VNC密码（不依赖kickstart的复杂逻辑）
-          echo -n "$VNC_PASS" | sudo tee /Library/Preferences/com.apple.VNCSettings.txt > /dev/null
-          sudo chmod 600 /Library/Preferences/com.apple.VNCSettings.txt
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -setvncpw -vncpw "$VNC_PASS"
           echo "VNC_PASSWORD=$VNC_PASS" >> $GITHUB_ENV
           echo "VNC_USER=runner" >> $GITHUB_ENV
+          
+          # 4. 提升runner权限并重启服务
+          sudo dscl . -append /Groups/admin GroupMembership runner
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
 
-      - name: 启动Tailscale（确保网络连通）
+      - name: 启动Tailscale
         run: |
           brew install tailscale
           sudo nohup /opt/homebrew/opt/tailscale/bin/tailscaled > /tmp/tailscaled.log 2>&1 &
           sleep 3
-          sudo /opt/homebrew/bin/tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=macos-vnc-force-${GITHUB_RUN_ID}
+          sudo /opt/homebrew/bin/tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=macos-vnc-simple-${GITHUB_RUN_ID}
           echo "TAILSCALE_IP=$(sudo /opt/homebrew/bin/tailscale ip -4)" >> $GITHUB_ENV
 
-      - name: 显示访问信息并保持运行
+      - name: 显示访问信息
         run: |
-          echo "=== 最终访问信息 ==="
+          echo "=== 访问信息 ==="
           echo "地址: $TAILSCALE_IP:5900"
           echo "用户名: $VNC_USER"
           echo "密码: $VNC_PASSWORD"
-          echo "====================="
+          echo "================="
           
-          # 实时监控VNC服务状态（方便排查）
-          while true; do
-            echo "[$(date)] VNC服务状态: $(pgrep ARDAgent >/dev/null && echo "运行中" || echo "已停止")"
-            sleep 300
-          done
+          while true; do sleep 300; done
