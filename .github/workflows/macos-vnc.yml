@@ -12,38 +12,54 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Enable Screen Sharing (VNC)
+      - name: Enable Screen Sharing (VNC) with Permissions
         run: |
-          # 启用系统VNC服务
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on \
-            -configure -allowAccessFor -allUsers -configure -restart -agent -privs -all
+          # 解决字符编码问题
+          export LC_ALL=C
           
-          # 生成随机VNC密码
-          VNC_PASS=$(LC_CTYPE=C tr -dc 'A-Za-z0-9!@#$%^&*' </dev/urandom | head -c 16)
+          # 授权屏幕录制和控制权限（解决系统隐私限制）
+          sudo tccutil reset ScreenCapture com.apple.remotemanagement.agent 2>/dev/null
+          sudo tccutil grant ScreenCapture com.apple.remotemanagement.agent 2>/dev/null
+          sudo tccutil reset Accessibility com.apple.remotemanagement.agent 2>/dev/null
+          sudo tccutil grant Accessibility com.apple.remotemanagement.agent 2>/dev/null
+          
+          # 启用系统VNC服务（Remote Management）
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate \
+            -configure -access -on \
+            -configure -allowAccessFor -allUsers \
+            -configure -privs -all \
+            -configure -restart -agent
+          
+          # 生成随机VNC密码（使用openssl避免tr命令编码问题）
+          VNC_PASS=$(openssl rand -base64 12 | tr -d '+/' | head -c 16)
           echo "VNC_PASSWORD=$VNC_PASS" >> "$GITHUB_ENV"
           
-          # 设置VNC密码
-          echo -n "$VNC_PASS" | sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes \
+          # 设置VNC密码（兼容传统VNC客户端）
+          echo -n "$VNC_PASS" | sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -clientopts -setvnclegacy -vnclegacy yes \
             -configure -clientopts -setvncpw -vncpw -
           
-          # 确保VNC服务启动
+          # 强制重启VNC服务确保配置生效
+          sudo pkill -9 ARDAgent 2>/dev/null || true
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
 
       - name: Install Tailscale
         run: |
-          # 安装Tailscale
+          # 安装Tailscale（使用Homebrew）
           brew install tailscale
           
-          # 启动Tailscale服务
+          # 启动Tailscale并连接
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-macos-runner-${GITHUB_RUN_ID}
           
-          # 获取Tailscale IP
+          # 获取Tailscale IPv4地址
           TAILSCALE_IP=$(tailscale ip -4)
           echo "TAILSCALE_IP=$TAILSCALE_IP" >> "$GITHUB_ENV"
 
       - name: Verify VNC Service
         run: |
-          # 检查VNC端口是否监听
+          # 检查VNC端口监听状态
+          echo "Checking VNC port 5900 on $TAILSCALE_IP..."
           lsof -i :5900 || true
           nc -z -v "$TAILSCALE_IP" 5900
 
@@ -51,11 +67,11 @@ jobs:
         run: |
           echo "=== VNC ACCESS INFORMATION ==="
           echo "Address: vnc://${TAILSCALE_IP}:5900"
-          echo "Username: runner"
+          echo "Username: runner (默认用户)"
           echo "Password: ${VNC_PASSWORD}"
           echo "Desktop: macOS"
           echo "=============================="
           while true; do
-            echo "[$(date)] VNC Active - Cancel workflow to terminate"
+            echo "[$(date)] VNC Active - 终止工作流以关闭连接"
             sleep 300
           done
