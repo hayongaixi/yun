@@ -1,4 +1,4 @@
-name: macOS VNC Server (Fixed)
+name: macOS VNC Server (Full Fixed)
 
 on:
   workflow_dispatch:
@@ -14,41 +14,43 @@ jobs:
 
       - name: Enable VNC (Screen Sharing)
         run: |
-          # 强制启用屏幕共享服务（VNC）
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-          # 允许默认用户（runner）远程访问
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -configure -users runner -access -on -privs -all
 
-      - name: Generate VNC Password (No tr command)
+      - name: Generate VNC Password
         run: |
-          # 用macOS原生支持的openssl生成密码（彻底避开tr的编码问题）
-          VNC_PASS=$(openssl rand -hex 6)  # 生成12位十六进制密码（安全且无特殊字符）
+          VNC_PASS=$(openssl rand -hex 6)
           echo "VNC_PASSWORD=$VNC_PASS" >> $GITHUB_ENV
 
-      - name: Set VNC Password for Default User
+      - name: Set VNC Password
         run: |
-          # 直接给默认用户runner设置VNC密码（无需创建新用户，无冲突）
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -configure -users runner -setvncpw -vncpw "${{ env.VNC_PASSWORD }}"
-          # 重启服务生效
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
 
-      - name: Install Tailscale
+      - name: Install & Start Tailscale (Fixed Service)
         run: |
+          # 安装Tailscale
           brew install tailscale
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=macos-vnc-fixed-${GITHUB_RUN_ID}
-          echo "TAILSCALE_IP=$(tailscale ip -4)" >> $GITHUB_ENV
+          # 手动启动Tailscale服务（关键修复：brew安装后不自动启动）
+          sudo nohup /opt/homebrew/opt/tailscale/bin/tailscaled > /tmp/tailscaled.log 2>&1 &
+          # 等待服务启动（给3秒缓冲）
+          sleep 3
+          # 连接Tailscale（用auth key）
+          sudo /opt/homebrew/bin/tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=macos-vnc-final-${GITHUB_RUN_ID}
+          # 获取Tailscale IP
+          echo "TAILSCALE_IP=$(sudo /opt/homebrew/bin/tailscale ip -4)" >> $GITHUB_ENV
 
-      - name: Keep Alive
+      - name: Keep Alive & Show Info
         run: |
-          echo "=== 访问信息 ==="
+          echo "=== 最终访问信息 ==="
           echo "VNC地址: $TAILSCALE_IP:5900"
-          echo "用户名: runner（系统默认用户，无需创建）"
+          echo "用户名: runner"
           echo "密码: $VNC_PASSWORD"
-          echo "================="
+          echo "===================="
           
           while true; do
-            echo "[$(date)] 运行中..."
+            echo "[$(date)] VNC + Tailscale 运行正常..."
             sleep 300
           done
