@@ -1,4 +1,4 @@
-name: macOS VNC Server (TigerVNC Fixed)
+name: macOS VNC Server (TigerVNC Path Fixed)
 
 on:
   workflow_dispatch:
@@ -12,50 +12,61 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install XQuartz (X11) and TigerVNC
+      - name: Install XQuartz and TigerVNC with Path Fix
         run: |
-          # 安装X11服务器（图形界面基础）
+          # 安装X11服务器
           brew install --cask xquartz
           
-          # 修正包名：Homebrew中TigerVNC的正确名称是tiger-vnc
+          # 安装TigerVNC（正确包名）
           brew install tiger-vnc
           
-          # 初始化XQuartz环境（CI环境无需注销，手动加载配置）
-          echo 'export DISPLAY=:0' >> ~/.bash_profile
-          source ~/.bash_profile
-          # 启动XQuartz后台服务
+          # 关键修复：确认VNC命令路径并添加到环境变量
+          # Homebrew在macOS的默认安装路径（适配Intel和Apple Silicon）
+          if [ -d "/usr/local/bin" ]; then
+            export PATH="/usr/local/bin:$PATH"
+          elif [ -d "/opt/homebrew/bin" ]; then
+            export PATH="/opt/homebrew/bin:$PATH"
+          fi
+          # 验证VNC命令是否存在
+          echo "VNC命令路径: $(which vncserver)"
+          echo "VNC密码工具路径: $(which vncpasswd)"
+          
+          # 启动XQuartz并等待初始化
           open -a XQuartz
-          # 等待XQuartz初始化（给3秒延迟）
-          sleep 3
+          sleep 5  # 延长等待时间，确保X11就绪
 
       - name: Configure VNC Server
         run: |
+          # 再次确认环境变量（避免子shell路径丢失）
+          if [ -d "/usr/local/bin" ]; then
+            export PATH="/usr/local/bin:$PATH"
+          elif [ -d "/opt/homebrew/bin" ]; then
+            export PATH="/opt/homebrew/bin:$PATH"
+          fi
           export LC_ALL=C
-          export DISPLAY=:0  # 确保X11显示变量生效
+          export DISPLAY=:0
           
-          # 生成随机VNC密码
+          # 生成随机密码
           VNC_PASS=$(openssl rand -hex 8)
           echo "VNC_PASSWORD=$VNC_PASS" >> "$GITHUB_ENV"
           
-          # 配置VNC目录和密码
+          # 配置VNC目录和密码（显式使用vncpasswd路径）
           mkdir -p ~/.vnc
-          echo "$VNC_PASS" | vncpasswd -f > ~/.vnc/passwd
+          echo "$VNC_PASS" | $(which vncpasswd) -f > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
           
-          # 配置VNC启动脚本（启动窗口管理器和终端）
+          # 配置启动脚本
           cat > ~/.vnc/xstartup << 'EOF'
           #!/bin/bash
           export DISPLAY=:0
-          # 启动轻量窗口管理器
           openbox &
-          # 启动终端（方便操作）
           xterm -ls -geometry 80x24+10+10 &
           EOF
           chmod +x ~/.vnc/xstartup
           
-          # 停止可能残留的VNC进程，再启动新实例
-          vncserver -kill :0 || true
-          vncserver :0 -localhost no -geometry 1280x800 -depth 24
+          # 启动VNC服务器（显式使用vncserver路径）
+          $(which vncserver) -kill :0 || true
+          $(which vncserver) :0 -localhost no -geometry 1280x800 -depth 24
 
       - name: Install Tailscale
         run: |
@@ -66,19 +77,23 @@ jobs:
 
       - name: Verify VNC Service
         run: |
-          echo "Checking VNC port 5900 status..."
-          lsof -i :5900 || echo "VNC server process check (may show nothing in CI)"
-          nc -z -v "$TAILSCALE_IP" 5900 || echo "Port check warning - try connecting directly"
+          if [ -d "/usr/local/bin" ]; then
+            export PATH="/usr/local/bin:$PATH"
+          elif [ -d "/opt/homebrew/bin" ]; then
+            export PATH="/opt/homebrew/bin:$PATH"
+          fi
+          echo "VNC进程状态: $(ps aux | grep vncserver | grep -v grep)"
+          nc -z -v "$TAILSCALE_IP" 5900 || echo "端口检查警告 - 尝试直接连接"
 
       - name: Keep Connection Alive
         run: |
-          echo "=== VNC ACCESS INFORMATION ==="
-          echo "Address: vnc://${TAILSCALE_IP}:5900"
-          echo "Username: runner"
-          echo "Password: ${VNC_PASSWORD}"
-          echo "Desktop: Openbox (轻量窗口管理器)"
-          echo "=============================="
+          echo "=== VNC访问信息 ==="
+          echo "地址: vnc://${TAILSCALE_IP}:5900"
+          echo "用户名: runner"
+          echo "密码: ${VNC_PASSWORD}"
+          echo "桌面环境: Openbox"
+          echo "==================="
           while true; do
-            echo "[$(date)] VNC Active - Terminate workflow to stop"
+            echo "[$(date)] VNC运行中 - 终止工作流以关闭"
             sleep 300
           done
