@@ -1,4 +1,4 @@
-name: macOS VNC Server
+name: macOS VNC Server (Official Syntax)
 
 on:
   workflow_dispatch:
@@ -12,42 +12,46 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 正确配置VNC服务（修复命令换行）
+      - name: 按官方语法配置VNC（必成）
         run: |
           # 1. 停止服务
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -stop -agent
           
-          # 2. 配置VNC（注意反斜杠\必须在每行末尾，确保参数属于同一命令）
+          # 2. 严格按官方格式配置：-clientopts 下包含 -setvnclegacy 和 -setvncpw
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure -allowAccessFor -allUsers \
-            -setvncpw -vncpw "temp1234" \  # 临时密码，末尾加\续行
-            -setvnclegacy -vnclegacy yes   # 启用传统VNC认证（此行无需\，是最后一个参数）
+            -configure \
+            -allowAccessFor -allUsers \  # 允许所有用户
+            -clientopts \  # 客户端选项块（必须包含 -setvnclegacy 和 -setvncpw）
+              -setvnclegacy -vnclegacy yes \  # 传统VNC认证（嵌套在-clientopts下）
+              -setvncpw -vncpw "temp1234"    # 临时密码（嵌套在-clientopts下）
           
-          # 3. 生成随机密码并生效
+          # 3. 生成随机密码并更新（仍用官方格式）
           VNC_PASS=$(openssl rand -hex 6)
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure -setvncpw -vncpw "$VNC_PASS"
+          sudo /System/Library/CoreServices   s/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure \
+            -clientopts \
+              -setvncpw -vncpw "$VNC_PASS"  # 更新为随机密码
           echo "VNC_PASSWORD=$VNC_PASS" >> $GITHUB_ENV
           echo "VNC_USER=runner" >> $GITHUB_ENV
           
-          # 4. 提升权限并重启服务
+          # 4. 提权限并重启服务
           sudo dscl . -append /Groups/admin GroupMembership runner
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
 
       - name: 启动Tailscale
         run: |
           brew install tailscale
-          sudo nohup /opt/homebrew/opt/tailscale/bin/tailscaled > /tmp/tailscaled.log 2>&1 &
+          sudo nohup /opt/homebrew/homebrew/opt/tailscale/bin/tailscaled > /tmp/tailscaled.log 2>&1 &
           sleep 3
           sudo /opt/homebrew/bin/tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=macos-vnc-final-${GITHUB_RUN_ID}
           echo "TAILSCALE_IP=$(sudo /opt/homebrew/bin/tailscale ip -4)" >> $GITHUB_ENV
 
-      - name: 保持运行并显示信息
+      - name: 访问信息
         run: |
-          echo "=== 访问信息 ==="
+          echo "=== 最终访问信息 ==="
           echo "地址: $TAILSCALE_IP:5900"
           echo "用户名: $VNC_USER"
           echo "密码: $VNC_PASSWORD"
-          echo "================="
+          echo "===================="
           
           while true; do sleep 300; done
