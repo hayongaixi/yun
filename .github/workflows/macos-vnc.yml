@@ -5,52 +5,68 @@ on:
 
 jobs:
   macos-vnc:
+    # 运行在最新的 Intel macOS 运行器上
+    # 您也可以使用 macos-14 来获取 ARM (M1) 运行器
     runs-on: macos-latest
     timeout-minutes: 3600
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Generate VNC Password
+        run: |
+          # 生成一个 16 位的安全密码
+          PASS=$(tr -dc 'A-Za-z0-9!@#$%^&*' < /dev/urandom | head -c 16 | tr -d '\n')
+          echo "VNC_PASSWORD=$PASS" >> "$GITHUB_ENV"
+          echo "已生成 VNC 密码。"
 
-      - name: Install dependencies
-        run: brew install jq
+      - name: Configure and Enable macOS VNC (Screen Sharing)
+        env:
+          VNC_PASSWORD: ${{ env.VNC_PASSWORD }}
+        run: |
+          if [ -z "$VNC_PASSWORD" ]; then
+            echo "::error::VNC_PASSWORD 不能为空。"
+            exit 1
+          fi
+          
+          # 使用 kickstart 工具来配置和启动 Apple Remote Desktop (ARD) 代理
+          # 这也将启用 VNC 访问
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on \
+            -configure -allowAccessFor -allUsers -privs -all \
+            -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$VNC_PASSWORD" \
+            -restart -agent
+          
+          echo "VNC 服务已配置并启动。"
 
       - name: Install Tailscale
         run: |
-          VERSION=$(curl -sSL https://pkgs.tailscale.com/stable/?mode=json | jq -r .Version)
-          curl -fsSL "https://pkgs.tailscale.com/stable/Tailscale-${VERSION}.pkg" -o tailscale.pkg
-          sudo installer -pkg tailscale.pkg -target /
-          nohup sudo tailscaled >/tmp/tailscaled.log 2>&1 & disown
-          sleep 3
+          # Homebrew 在 GitHub 运行器上是预装的
+          brew install tailscale
+          echo "Tailscale 已安装。"
 
       - name: Connect to Tailscale
         run: |
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-${GITHUB_RUN_ID}
+          # 启动 Tailscale 并连接
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-macos-${GITHUB_RUN_ID}
+          echo "Tailscale 已连接。"
+          # 获取 Tailscale 的 IPv4 地址并保存到环境变量
           echo "TAILSCALE_IP=$(tailscale ip -4)" >> "$GITHUB_ENV"
-
-      - name: Configure VNC Server
-        run: |
-          PASS=$(tr -dc 'A-Za-z0-9!@#$%^&*' </dev/urandom | head -c 16)
-          echo "VNC_PASSWORD=$PASS" >> "$GITHUB_ENV"
-          HEX_PASS=$(echo -n "$PASS" | xxd -p -c 1000 | tr -d '\n')
-          sudo defaults write /Library/Preferences/com.apple.VNCServer Password -data "$HEX_PASS"
-          sudo defaults write /Library/Preferences/com.apple.VNCServer LegacyAuthenticationEnabled -bool true
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -restart -agent -privs -all -allowAccessFor -allUsers
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
 
       - name: Verify VNC Connection
         run: |
           echo "Tailscale IP: $TAILSCALE_IP"
+          echo "正在检查 VNC 端口 5900..."
+          # 检查本地 Tailscale IP 上的 5900 端口是否开放
           nc -z -v "$TAILSCALE_IP" 5900
 
       - name: Keep Connection Alive
         run: |
           echo "=== VNC ACCESS INFORMATION ==="
-          echo "Address: ${TAILSCALE_IP}:5900"
-          echo "Password: ${VNC_PASSWORD}"
-          echo "Desktop: macOS"
+          echo "地址 (Address): ${TAILSCALE_IP}:5900"
+          echo "用户名 (Username): runner (默认用户)"
+          echo "密码 (Password): ${VNC_PASSWORD}"
           echo "=============================="
+          # 循环以保持作业活动
           while true; do
-            echo "[$(date)] VNC Active - Cancel workflow to terminate"
+            echo "[$(date)] VNC Active - 在 GitHub UI 中取消工作流以终止"
             sleep 300
           done
