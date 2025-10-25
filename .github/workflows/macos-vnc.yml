@@ -1,4 +1,4 @@
-name: macOS VNC Server (Official Syntax)
+name: macOS VNC Server
 
 on:
   workflow_dispatch:
