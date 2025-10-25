@@ -20,15 +20,13 @@ jobs:
         shell: pwsh
         run: .github/workflows/scripts/win-create-user.ps1
 
-      - name: Install frp (后台启动，修复语法错误)
+      - name: Install frp
         shell: pwsh
         run: |
-          # 修复换行语法：反引号放在参数后，注释单独写
           Start-Process -FilePath ".github/workflows/scripts/mefrpc.exe" `
-            -ArgumentList "-t bab042f57c6e615bc8692773cf2386dc -p 50000" `  # 端口改为 50000（有效范围）
-            -NoNewWindow `  # 反引号放在这里，不被注释干扰
-            -PassThru       # 确认进程启动成功
-          # 等待 3 秒确保程序启动完成
+            -ArgumentList "-t bab042f57c6e615bc8692773cf2386dc -p 50000" `
+            -NoNewWindow `
+            -PassThru
           Start-Sleep -Seconds 3
 
       - name: Maintain Connection
@@ -40,13 +38,13 @@ jobs:
           Write-Host "Password: $(echo $env:RDP_CREDS)"
           Write-Host "==================`n"
           while ($true) {
-            # 检查 frp 进程，意外退出时重启
             $frpProcess = Get-Process "mefrpc" -ErrorAction SilentlyContinue
             if (-not $frpProcess) {
               Write-Host "[$(Get-Date)] frp 进程已退出，重启中..."
               Start-Process -FilePath ".github/workflows/scripts/mefrpc.exe" `
                 -ArgumentList "-t bab042f57c6e615bc8692773cf2386dc -p 50000" `
-                -NoNewWindow -PassThru
+                -NoNewWindow `
+                -PassThru
             }
             Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
             Start-Sleep -Seconds 300
