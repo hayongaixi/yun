@@ -20,13 +20,9 @@ jobs:
         shell: pwsh
         run: .github/workflows/scripts/win-create-user.ps1
 
-      - name: Install mefrp
+      - name: Install frp
         shell: pwsh
         run: Start-Process -FilePath ".github/workflows/scripts/mefrpc.exe" -ArgumentList "-t bab042f57c6e615bc8692773cf2386dc -p 124829" -NoNewWindow -PassThru; Start-Sleep -Seconds 2
-
-      - name: Verify RDP Accessibility
-        shell: pwsh
-        run: .github/workflows/scripts/win-verify-rdp.ps1
 
       - name: Maintain Connection
         shell: pwsh
