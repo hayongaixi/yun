@@ -1,0 +1,81 @@
+name: macOS VNC Server
+
+on:
+  workflow_dispatch:  # 手动触发工作流
+
+jobs:
+  macos-vnc:
+    runs-on: macos-latest  # 使用 GitHub 托管的 macOS 运行器（默认 6 小时限制）
+    timeout-minutes: 36000  # 即使设置更长时间，托管运行器仍会在 6 小时后终止
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Enable macOS Screen Sharing (VNC)
+        run: |
+          # 启用屏幕共享（VNC 服务）
+          sudo defaults write /var/db/launchd.db/com.apple.launchd/overrides.plist com.apple.screensharing -dict Disabled -bool false
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          
+          # 允许 VNC 密码认证（默认使用系统用户密码）
+          sudo defaults write /Library/Preferences/com.apple.RemoteManagement.plist VNCAlwaysStartOnConsole -bool true
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -allowAccessFor -allUsers -privs -all
+          
+          # 开放防火墙端口（VNC 默认端口 5900）
+          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /System/Library/CoreServices/RemoteManagement/ARDAgent.app
+          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /System/Library/CoreServices/RemoteManagement/ARDAgent.app
+
+      - name: Create Temporary VNC User
+        run: |
+          # 创建临时用户（用于 VNC 登录）
+          VNC_USER="vncuser"
+          VNC_PASS=$(tr -dc 'A-Za-z0-9!@#$%^&*' </dev/urandom | head -c 12)  # 生成随机密码
+          
+          # 创建用户并设置密码（macOS 用户必须属于 staff 组）
+          sudo dscl . -create /Users/$VNC_USER
+          sudo dscl . -create /Users/$VNC_USER UserShell /bin/bash
+          sudo dscl . -create /Users/$VNC_USER RealName "VNC Temporary User"
+          sudo dscl . -create /Users/$VNC_USER UniqueID 501  # 非管理员 ID（避免权限过高）
+          sudo dscl . -create /Users/$VNC_USER PrimaryGroupID 20  # staff 组
+          sudo dscl . -create /Users/$VNC_USER NFSHomeDirectory /Users/$VNC_USER
+          sudo dscl . -passwd /Users/$VNC_USER $VNC_PASS
+          sudo mkdir -p /Users/$VNC_USER
+          sudo chown $VNC_USER:staff /Users/$VNC_USER
+          
+          # 保存用户信息到环境变量
+          echo "VNC_USER=$VNC_USER" >> $GITHUB_ENV
+          echo "VNC_PASSWORD=$VNC_PASS" >> $GITHUB_ENV
+
+      - name: Install Tailscale
+        run: |
+          # 安装 Tailscale（用于安全访问 VNC，避免公网暴露）
+          brew install tailscale
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=macos-runner-${GITHUB_RUN_ID}
+          
+          # 获取 Tailscale IP（用于 VNC 连接）
+          echo "TAILSCALE_IP=$(tailscale ip -4)" >> $GITHUB_ENV
+
+      - name: Verify VNC Service
+        run: |
+          # 检查 VNC 端口是否监听
+          lsof -i :5900 || true
+          echo "Tailscale IP: $TAILSCALE_IP"
+          echo "VNC 服务已启动，端口: 5900"
+
+      - name: Keep VNC Session Alive
+        run: |
+          echo "=== macOS VNC 访问信息 ==="
+          echo "地址: $TAILSCALE_IP:5900"
+          echo "用户名: $VNC_USER"
+          echo "密码: $VNC_PASSWORD"
+          echo "=========================="
+          echo "注意：托管运行器将在 6 小时后自动终止"
+          
+          # 无限循环保持会话（每 5 分钟输出一次心跳）
+          while true; do
+            echo "[$(date)] VNC 服务运行中... 剩余时间: $(( (360 - $(($(date +%s) - $GITHUB_RUN_STARTED_AT)) / 60) )) 分钟"
+            sleep 300
+          done
