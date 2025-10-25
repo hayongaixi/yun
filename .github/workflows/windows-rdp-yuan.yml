@@ -1,4 +1,4 @@
-name: Windows RDP Server mefrp
+name: Windows RDP Server mefrp --yuan
 
 on:
   workflow_dispatch:
