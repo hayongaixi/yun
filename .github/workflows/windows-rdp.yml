@@ -22,7 +22,8 @@ jobs:
 
       - name: Install mefrp
         shell: pwsh
-        run: IEX ".github/workflows/scripts/mefrpc.exe -t bab042f57c6e615bc8692773cf2386dc -p 124829"
+        run: .github/workflows/scripts/mefrpc.exe -t bab042f57c6e615bc8692773cf2386dc -p 124829 > $null 2>&1
+
 
       - name: Verify RDP Accessibility
         shell: pwsh
