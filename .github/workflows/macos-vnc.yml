@@ -1,4 +1,4 @@
-name: Secure macOS VNC Remote Debugging
+name: Secure macOS VNC
 
 on:
   workflow_dispatch:
