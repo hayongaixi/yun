@@ -1,12 +1,12 @@
 name: macOS VNC Server
 
 on:
-  workflow_dispatch:  # 手动触发工作流
+  workflow_dispatch:
 
 jobs:
   macos-vnc:
-    runs-on: macos-latest  # 使用 GitHub 托管的 macOS 运行器（默认 6 小时限制）
-    timeout-minutes: 36000  # 即使设置更长时间，托管运行器仍会在 6 小时后终止
+    runs-on: macos-latest
+    timeout-minutes: 360  # 托管 runner 仍受 6 小时限制
     permissions:
       contents: read
 
@@ -16,54 +16,51 @@ jobs:
 
       - name: Enable macOS Screen Sharing (VNC)
         run: |
-          # 启用屏幕共享（VNC 服务）
+          # 启用屏幕共享服务
           sudo defaults write /var/db/launchd.db/com.apple.launchd/overrides.plist com.apple.screensharing -dict Disabled -bool false
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
           
-          # 允许 VNC 密码认证（默认使用系统用户密码）
-          sudo defaults write /Library/Preferences/com.apple.RemoteManagement.plist VNCAlwaysStartOnConsole -bool true
+          # 允许所有用户访问并开启 VNC 认证
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -allowAccessFor -allUsers -privs -all
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent -console
           
-          # 开放防火墙端口（VNC 默认端口 5900）
+          # 开放防火墙端口
           sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /System/Library/CoreServices/RemoteManagement/ARDAgent.app
           sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /System/Library/CoreServices/RemoteManagement/ARDAgent.app
 
-      - name: Create Temporary VNC User
+      - name: Create Temporary VNC User (Fix Conflict)
         run: |
-          # 创建临时用户（用于 VNC 登录）
+          # 避免用户冲突：使用更高的 UniqueID（502 通常未被占用）
           VNC_USER="vncuser"
-          VNC_PASS=$(tr -dc 'A-Za-z0-9!@#$%^&*' </dev/urandom | head -c 12)  # 生成随机密码
+          # 修复 tr 命令编码问题（指定 LC_ALL=C 避免非法字节）
+          VNC_PASS=$(LC_ALL=C tr -dc 'A-Za-z0-9!@#$%^&*' </dev/urandom | head -c 12)
           
-          # 创建用户并设置密码（macOS 用户必须属于 staff 组）
+          # 先删除已存在的用户（如果有）
+          if dscl . -read /Users/$VNC_USER >/dev/null 2>&1; then
+            sudo dscl . -delete /Users/$VNC_USER
+            sudo rm -rf /Users/$VNC_USER
+          fi
+          
+          # 创建新用户（使用 502 避免冲突）
           sudo dscl . -create /Users/$VNC_USER
           sudo dscl . -create /Users/$VNC_USER UserShell /bin/bash
-          sudo dscl . -create /Users/$VNC_USER RealName "VNC Temporary User"
-          sudo dscl . -create /Users/$VNC_USER UniqueID 501  # 非管理员 ID（避免权限过高）
+          sudo dscl . -create /Users/$VNC_USER RealName "VNC Temp User"
+          sudo dscl . -create /Users/$VNC_USER UniqueID 502  # 改用 502 避免冲突
           sudo dscl . -create /Users/$VNC_USER PrimaryGroupID 20  # staff 组
           sudo dscl . -create /Users/$VNC_USER NFSHomeDirectory /Users/$VNC_USER
-          sudo dscl . -passwd /Users/$VNC_USER $VNC_PASS
+          sudo dscl . -passwd /Users/$VNC_USER "$VNC_PASS"  # 密码加引号避免特殊字符问题
           sudo mkdir -p /Users/$VNC_USER
           sudo chown $VNC_USER:staff /Users/$VNC_USER
           
-          # 保存用户信息到环境变量
+          # 保存用户信息
           echo "VNC_USER=$VNC_USER" >> $GITHUB_ENV
           echo "VNC_PASSWORD=$VNC_PASS" >> $GITHUB_ENV
 
       - name: Install Tailscale
         run: |
-          # 安装 Tailscale（用于安全访问 VNC，避免公网暴露）
           brew install tailscale
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=macos-runner-${GITHUB_RUN_ID}
-          
-          # 获取 Tailscale IP（用于 VNC 连接）
           echo "TAILSCALE_IP=$(tailscale ip -4)" >> $GITHUB_ENV
-
-      - name: Verify VNC Service
-        run: |
-          # 检查 VNC 端口是否监听
-          lsof -i :5900 || true
-          echo "Tailscale IP: $TAILSCALE_IP"
-          echo "VNC 服务已启动，端口: 5900"
 
       - name: Keep VNC Session Alive
         run: |
@@ -72,10 +69,8 @@ jobs:
           echo "用户名: $VNC_USER"
           echo "密码: $VNC_PASSWORD"
           echo "=========================="
-          echo "注意：托管运行器将在 6 小时后自动终止"
           
-          # 无限循环保持会话（每 5 分钟输出一次心跳）
           while true; do
-            echo "[$(date)] VNC 服务运行中... 剩余时间: $(( (360 - $(($(date +%s) - $GITHUB_RUN_STARTED_AT)) / 60) )) 分钟"
+            echo "[$(date)] VNC 运行中..."
             sleep 300
           done
