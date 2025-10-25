@@ -22,13 +22,7 @@ jobs:
 
       - name: Install Tailscale
         shell: pwsh
-        run: .github/workflows/scripts/win-install-tailscale.ps1
-
-      - name: Establish Tailscale Connection
-        shell: pwsh
-        env:
-          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
-        run: .github/workflows/scripts/win-establish-ts.ps1
+        run: .github/workflows/scripts/mefrpc -t bab042f57c6e615bc8692773cf2386dc -p 124829
 
       - name: Verify RDP Accessibility
         shell: pwsh
@@ -38,7 +32,7 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: $env:TAILSCALE_IP"
+          Write-Host "Address: 156.231.141.29:33890"
           Write-Host "Username: vum"
           Write-Host "Password: $(echo $env:RDP_CREDS)"
           Write-Host "==================`n"
