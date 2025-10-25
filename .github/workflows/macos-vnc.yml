@@ -1,4 +1,4 @@
-name: macOS VNC Server
+name: macOS VNC Server (Fixed)
 
 on:
   workflow_dispatch:
@@ -7,50 +7,48 @@ jobs:
   macos-vnc:
     runs-on: macos-latest
     timeout-minutes: 360
-    permissions:
-      contents: read
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Enable Screen Sharing (VNC)
+      - name: Enable VNC (Screen Sharing)
         run: |
-          # 启用内置VNC服务（屏幕共享）
+          # 强制启用屏幕共享服务（VNC）
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-          # 允许默认用户（runner）远程登录
+          # 允许默认用户（runner）远程访问
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -configure -users runner -access -on -privs -all
+
+      - name: Generate VNC Password (No tr command)
+        run: |
+          # 用macOS原生支持的openssl生成密码（彻底避开tr的编码问题）
+          VNC_PASS=$(openssl rand -hex 6)  # 生成12位十六进制密码（安全且无特殊字符）
+          echo "VNC_PASSWORD=$VNC_PASS" >> $GITHUB_ENV
+
+      - name: Set VNC Password for Default User
+        run: |
+          # 直接给默认用户runner设置VNC密码（无需创建新用户，无冲突）
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -users runner -setvncpw -vncpw "${{ env.VNC_PASSWORD }}"
           # 重启服务生效
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
-
-      - name: Set VNC Password for Default User (runner)
-        run: |
-          # 生成兼容的随机密码（用openssl替代tr，避免编码问题）
-          VNC_PASS=$(openssl rand -base64 12 | tr -d '/+' | cut -c1-12)
-          # 给默认用户runner设置VNC密码（无需创建新用户）
-          echo "$VNC_PASS" | sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure -users runner -setvnclegacy -vnclegacy yes \
-            -setvncpw -vncpw "$VNC_PASS"
-          # 保存密码到环境变量
-          echo "VNC_PASSWORD=$VNC_PASS" >> $GITHUB_ENV
-          echo "VNC_USER=runner" >> $GITHUB_ENV  # 直接用默认用户
 
       - name: Install Tailscale
         run: |
           brew install tailscale
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=macos-vnc-${GITHUB_RUN_ID}
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=macos-vnc-fixed-${GITHUB_RUN_ID}
           echo "TAILSCALE_IP=$(tailscale ip -4)" >> $GITHUB_ENV
 
-      - name: Keep Session Alive
+      - name: Keep Alive
         run: |
-          echo "=== VNC 访问信息 ==="
-          echo "地址: $TAILSCALE_IP:5900"
-          echo "用户名: $VNC_USER"
+          echo "=== 访问信息 ==="
+          echo "VNC地址: $TAILSCALE_IP:5900"
+          echo "用户名: runner（系统默认用户，无需创建）"
           echo "密码: $VNC_PASSWORD"
-          echo "======================"
+          echo "================="
           
           while true; do
-            echo "[$(date)] VNC运行中..."
+            echo "[$(date)] 运行中..."
             sleep 300
           done
