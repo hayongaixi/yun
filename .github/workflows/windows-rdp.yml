@@ -1,4 +1,4 @@
-name: Windows RDP Server
+name: Windows RDP Server mefrp
 
 on:
   workflow_dispatch:
