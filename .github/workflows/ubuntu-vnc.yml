@@ -56,34 +56,19 @@ jobs:
           vncserver -kill :0 || true
           vncserver :0 -localhost no -geometry 1280x800 -depth 24 -xstartup ~/.vnc/xstartup
 
-      - name: Install Tailscale
-        run: curl -fsSL https://tailscale.com/install.sh | sh
 
-      - name: Start tailscaled (manual)
-        run: |
-          sudo mkdir -p /var/run
-          nohup sudo tailscaled >/tmp/tailscaled.log 2>&1 & disown
-          sleep 3
-
-      - name: Connect to Tailscale
-        run: |
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-${GITHUB_RUN_ID}
-          echo "TAILSCALE_IP=$(tailscale ip -4)" >> "$GITHUB_ENV"
-
+      - name: install frp
+        run: bash .github/workflows/scripts/ubuntu-install-ss.sh
+        
       - name: Restore systemctl hooks
         run: bash .github/workflows/scripts/restore-systemctl.sh
 
-      - name: Verify VNC Connection
-        run: |
-          echo "Tailscale IP: $TAILSCALE_IP"
-          nc -z -v "$TAILSCALE_IP" 5900
-
       - name: Keep Connection Alive
         run: |
-          echo "=== VNC ACCESS INFORMATION ==="
-          echo "Address: ${TAILSCALE_IP}:5900"
-          echo "Password: ${VNC_PASSWORD}"
-          echo "Desktop: GNOME"
+          echo "=== PROXY ACCESS INFORMATION ==="
+          echo "Address: 156.231.141.29:30000"
+          echo "Password: Pass@Word1"
+          echo "method: chacha20-ietf-poly1305"
           echo "=============================="
           while true; do
             echo "[$(date)] VNC Active - Cancel workflow to terminate"
