@@ -1,4 +1,4 @@
-name: macOS VNC Server (TigerVNC)
+name: macOS VNC Server (TigerVNC Fixed)
 
 on:
   workflow_dispatch:
@@ -12,38 +12,49 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install XQuartz (X11 Server) and TigerVNC
+      - name: Install XQuartz (X11) and TigerVNC
         run: |
-          # 安装X11服务器（macOS运行图形界面必需）
+          # 安装X11服务器（图形界面基础）
           brew install --cask xquartz
-          # 安装第三方VNC服务器（避免系统权限限制）
-          brew install tigervnc
+          
+          # 修正包名：Homebrew中TigerVNC的正确名称是tiger-vnc
+          brew install tiger-vnc
+          
+          # 初始化XQuartz环境（CI环境无需注销，手动加载配置）
+          echo 'export DISPLAY=:0' >> ~/.bash_profile
+          source ~/.bash_profile
+          # 启动XQuartz后台服务
+          open -a XQuartz
+          # 等待XQuartz初始化（给3秒延迟）
+          sleep 3
 
       - name: Configure VNC Server
         run: |
           export LC_ALL=C
+          export DISPLAY=:0  # 确保X11显示变量生效
           
           # 生成随机VNC密码
           VNC_PASS=$(openssl rand -hex 8)
           echo "VNC_PASSWORD=$VNC_PASS" >> "$GITHUB_ENV"
           
-          # 初始化VNC配置
+          # 配置VNC目录和密码
           mkdir -p ~/.vnc
           echo "$VNC_PASS" | vncpasswd -f > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
           
-          # 配置VNC启动脚本（启动X11和基本桌面环境）
+          # 配置VNC启动脚本（启动窗口管理器和终端）
           cat > ~/.vnc/xstartup << 'EOF'
           #!/bin/bash
           export DISPLAY=:0
-          # 启动X11窗口管理器
+          # 启动轻量窗口管理器
           openbox &
-          # 启动终端（可选）
-          xterm &
+          # 启动终端（方便操作）
+          xterm -ls -geometry 80x24+10+10 &
           EOF
           chmod +x ~/.vnc/xstartup
           
-          # 启动VNC服务器（绑定所有接口，分辨率1280x800）
+          # 停止可能残留的VNC进程，再启动新实例
+          vncserver -kill :0 || true
           vncserver :0 -localhost no -geometry 1280x800 -depth 24
 
       - name: Install Tailscale
@@ -55,9 +66,9 @@ jobs:
 
       - name: Verify VNC Service
         run: |
-          echo "Checking VNC port 5900..."
-          lsof -i :5900 || echo "VNC server status check (may show nothing in CI)"
-          nc -z -v "$TAILSCALE_IP" 5900 || echo "Port check warning (proceed to connect)"
+          echo "Checking VNC port 5900 status..."
+          lsof -i :5900 || echo "VNC server process check (may show nothing in CI)"
+          nc -z -v "$TAILSCALE_IP" 5900 || echo "Port check warning - try connecting directly"
 
       - name: Keep Connection Alive
         run: |
