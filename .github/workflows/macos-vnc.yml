@@ -12,21 +12,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Enable Remote Management
-        run: |
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -users $USER -privs -all -restart -agent -menu
-
       - name: Generate Random VNC Password
         run: |
-          export VNC_PASSWORD=$(tr -dc 'A-Za-z0-9!@#$%^&*' </dev/urandom | head -c 16)
+          export VNC_PASSWORD=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 8)
           echo "VNC_PASSWORD=${VNC_PASSWORD}" >> "$GITHUB_ENV"
 
-      - name: Configure VNC Password
+      - name: Enable Remote Management and Set VNC Password
         env:
           VNC_PASSWORD: ${{ env.VNC_PASSWORD }}
         run: |
+          osascript -e 'tell application "System Events" to set remote login to true'
           sudo defaults write /Library/Preferences/com.apple.RemoteManagement.plist VNCPassword -string "${VNC_PASSWORD}"
-          sudo launchctl kickstart -k system/com.apple.RemoteManagement
+          killall SystemUIServer
 
       - name: Install Tailscale
         run: |
@@ -39,7 +36,12 @@ jobs:
 
       - name: Verify VNC Connection
         run: |
-          nc -z -v "$TAILSCALE_IP" 5900
+          if nc -z -v "$TAILSCALE_IP" 5900; then
+            echo "VNC connection verified!"
+          else
+            echo "VNC connection failed."
+            exit 1
+          fi
 
       - name: Maintain Connection
         run: |
