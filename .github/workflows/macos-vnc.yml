@@ -1,4 +1,4 @@
-name: macOS VNC Server
+name: macOS VNC Server (TigerVNC)
 
 on:
   workflow_dispatch:
@@ -12,48 +12,39 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Enable Screen Sharing (VNC) with Correct Syntax
+      - name: Install XQuartz (X11 Server) and TigerVNC
+        run: |
+          # 安装X11服务器（macOS运行图形界面必需）
+          brew install --cask xquartz
+          # 安装第三方VNC服务器（避免系统权限限制）
+          brew install tigervnc
+
+      - name: Configure VNC Server
         run: |
           export LC_ALL=C
           
-          # 1. 激活远程管理服务（基础激活）
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate \
-            -verbose
-          
-          # 2. 启用访问权限（单独配置-access）
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure \
-            -access -on \
-            -verbose
-          
-          # 3. 允许所有用户访问并授予全部权限（严格按照示例格式：-allowAccessFor -allUsers 后直接跟 -privs -all）
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure \
-            -allowAccessFor -allUsers \
-            -privs -all \
-            -verbose
-          
-          # 4. 配置VNC legacy模式（兼容传统VNC客户端）
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure \
-            -clientopts \
-            -setvnclegacy yes \
-            -verbose
-          
-          # 5. 生成并设置VNC密码（使用明确的管道传递，避免参数歧义）
-          VNC_PASS=$(openssl rand -hex 8)  # 16位纯十六进制，无特殊字符
+          # 生成随机VNC密码
+          VNC_PASS=$(openssl rand -hex 8)
           echo "VNC_PASSWORD=$VNC_PASS" >> "$GITHUB_ENV"
-          echo -n "$VNC_PASS" | sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure \
-            -clientopts \
-            -setvncpw - \  # "-" 表示从标准输入读取密码
-            -verbose
           
-          # 6. 重启服务使配置生效（使用示例中的标准重启参数）
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -restart -agent \
-            -verbose
+          # 初始化VNC配置
+          mkdir -p ~/.vnc
+          echo "$VNC_PASS" | vncpasswd -f > ~/.vnc/passwd
+          chmod 600 ~/.vnc/passwd
+          
+          # 配置VNC启动脚本（启动X11和基本桌面环境）
+          cat > ~/.vnc/xstartup << 'EOF'
+          #!/bin/bash
+          export DISPLAY=:0
+          # 启动X11窗口管理器
+          openbox &
+          # 启动终端（可选）
+          xterm &
+          EOF
+          chmod +x ~/.vnc/xstartup
+          
+          # 启动VNC服务器（绑定所有接口，分辨率1280x800）
+          vncserver :0 -localhost no -geometry 1280x800 -depth 24
 
       - name: Install Tailscale
         run: |
@@ -62,11 +53,11 @@ jobs:
           TAILSCALE_IP=$(tailscale ip -4)
           echo "TAILSCALE_IP=$TAILSCALE_IP" >> "$GITHUB_ENV"
 
-      - name: Verify VNC Port
+      - name: Verify VNC Service
         run: |
-          echo "Checking if VNC port 5900 is listening..."
-          lsof -i :5900 || echo "VNC port 5900 not found (may be blocked by CI environment)"
-          nc -z -v "$TAILSCALE_IP" 5900 || echo "VNC connection test failed (check service status)"
+          echo "Checking VNC port 5900..."
+          lsof -i :5900 || echo "VNC server status check (may show nothing in CI)"
+          nc -z -v "$TAILSCALE_IP" 5900 || echo "Port check warning (proceed to connect)"
 
       - name: Keep Connection Alive
         run: |
@@ -74,6 +65,7 @@ jobs:
           echo "Address: vnc://${TAILSCALE_IP}:5900"
           echo "Username: runner"
           echo "Password: ${VNC_PASSWORD}"
+          echo "Desktop: Openbox (轻量窗口管理器)"
           echo "=============================="
           while true; do
             echo "[$(date)] VNC Active - Terminate workflow to stop"
