@@ -20,9 +20,9 @@ jobs:
         shell: pwsh
         run: .github/workflows/scripts/win-create-user.ps1
 
-      - name: Install Tailscale
+      - name: Install mefrp
         shell: pwsh
-        run: .github/workflows/scripts/mefrpc -t bab042f57c6e615bc8692773cf2386dc -p 124829
+        run: .github/workflows/scripts/mefrpc.exe -t bab042f57c6e615bc8692773cf2386dc -p 124829
 
       - name: Verify RDP Accessibility
         shell: pwsh
