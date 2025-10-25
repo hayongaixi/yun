@@ -3,7 +3,7 @@
 合并脚本：设置系统语言区域为中文（中国）、执行注册表操作，并创建 RDP 管理员用户
 #>
 
-# 要求管理员权限（系统设置和用户创建均需管理员权限）
+# 要求管理员权限
 #Requires -RunAsAdministrator
 
 try {
@@ -15,21 +15,23 @@ try {
     # 1. 导入国际设置模块
     Import-Module International -ErrorAction Stop
 
-    # 2. 设置系统首选语言为中文（简体）- 移除无效的 Speech/Handwriting 属性赋值
+    # 2. 设置系统首选语言为中文（简体）
     Write-Host "设置系统语言为中文（简体）..."
     $chineseLang = New-WinUserLanguageList -Language "zh-CN"
     Set-WinUserLanguageList -LanguageList $chineseLang -Force -ErrorAction Stop
 
-    # 3. 设置区域格式为中文（中国）
+    # 3. 设置区域格式为中文（中国）（控制日期、时间、数字格式）
     Write-Host "设置区域格式为中文（中国）..."
     Set-Culture -CultureInfo "zh-CN" -ErrorAction Stop
 
-    # 4. 设置国家/地区为中国
+    # 4. 设置国家/地区为中国（简化操作，避免GeoID警告）
     Write-Host "设置国家/地区为中国..."
-    Set-WinHomeLocation -GeoId 286  # 286 是中国的 GeoID
-    Set-WinSystemLocale -SystemLocale "zh-CN" -ErrorAction Stop
+    Set-WinHomeLocation -GeoId 286 -ErrorAction Stop  # 286为中国GeoID
 
-    # 5. 执行指定的注册表操作（HKCU 对应当前用户）
+    # 5. 移除可能引发异常的系统区域设置（服务器环境非必需）
+    # （原Set-WinSystemLocale命令在此处删除，避免冲突）
+
+    # 6. 执行注册表操作
     Write-Host "执行注册表添加命令..."
     $regPath = "HKCU\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32"
     $regResult = reg add "$regPath" /f /ve 2>&1
@@ -45,28 +47,27 @@ try {
     # ==============================================
     Write-Host "===== 开始创建 RDP 管理员用户 =====" -ForegroundColor Cyan
 
-    # 1. 定义用户名和密码（使用指定的密码）
     $userName = "administrator"
     $plainPassword = "Pass@Word1"
 
-    # 2. 转换密码为安全字符串
+    # 转换密码为安全字符串
     Write-Host "准备用户密码..."
     $securePass = ConvertTo-SecureString $plainPassword -AsPlainText -Force
 
-    # 3. 创建本地用户（账户永不过期）
+    # 创建本地用户
     Write-Host "创建用户 $userName..."
     New-LocalUser -Name $userName -Password $securePass -AccountNeverExpires -ErrorAction Stop
 
-    # 4. 添加到管理员组和远程桌面用户组
+    # 赋予权限
     Write-Host "赋予用户管理员权限和远程登录权限..."
     Add-LocalGroupMember -Group "Administrators" -Member $userName -ErrorAction Stop
     Add-LocalGroupMember -Group "Remote Desktop Users" -Member $userName -ErrorAction Stop
 
-    # 5. 记录凭据到 GitHub 环境变量
+    # 记录凭据
     Write-Host "记录登录凭据..."
     echo "RDP_CREDS=User: $userName | Password: $plainPassword" >> $env:GITHUB_ENV
 
-    # 6. 验证用户是否创建成功
+    # 验证用户创建
     if (-not (Get-LocalUser -Name $userName -ErrorAction Stop)) {
         throw "用户 $userName 创建失败"
     }
