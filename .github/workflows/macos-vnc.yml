@@ -12,36 +12,48 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Enable Screen Sharing (VNC) with Fixed Configuration
+      - name: Enable Screen Sharing (VNC) with Correct Syntax
         run: |
-          # 强制字符编码为C，避免locale问题
           export LC_ALL=C
           
-          # 关键修复：修正kickstart参数格式（苹果官方文档要求）
-          # -allowAccessFor 后直接跟用户范围（无需连字符）
-          # -privs 使用数字权限值（1073742079代表所有权限）
+          # 1. 激活远程管理服务（基础激活）
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate \
-            -configure -access on \
-            -configure -allowAccessFor allUsers \
-            -configure -privs 1073742079 \
-            -configure -restart -agent \
-            -verbose  # 输出详细日志，便于排查错误
-          
-          # 生成随机密码（更稳定的方式）
-          VNC_PASS=$(openssl rand -hex 8)  # 16位十六进制字符，避免特殊字符问题
-          echo "VNC_PASSWORD=$VNC_PASS" >> "$GITHUB_ENV"
-          
-          # 设置VNC密码（修正参数传递方式）
-          echo -n "$VNC_PASS" | sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure -clientopts \
-            -setvnclegacy yes \
-            -setvncpw - \
             -verbose
           
-          # 强制重启服务
-          sudo launchctl stop com.apple.ARDAgent
-          sudo launchctl start com.apple.ARDAgent
+          # 2. 启用访问权限（单独配置-access）
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure \
+            -access -on \
+            -verbose
+          
+          # 3. 允许所有用户访问并授予全部权限（严格按照示例格式：-allowAccessFor -allUsers 后直接跟 -privs -all）
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure \
+            -allowAccessFor -allUsers \
+            -privs -all \
+            -verbose
+          
+          # 4. 配置VNC legacy模式（兼容传统VNC客户端）
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure \
+            -clientopts \
+            -setvnclegacy yes \
+            -verbose
+          
+          # 5. 生成并设置VNC密码（使用明确的管道传递，避免参数歧义）
+          VNC_PASS=$(openssl rand -hex 8)  # 16位纯十六进制，无特殊字符
+          echo "VNC_PASSWORD=$VNC_PASS" >> "$GITHUB_ENV"
+          echo -n "$VNC_PASS" | sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure \
+            -clientopts \
+            -setvncpw - \  # "-" 表示从标准输入读取密码
+            -verbose
+          
+          # 6. 重启服务使配置生效（使用示例中的标准重启参数）
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -restart -agent \
+            -verbose
 
       - name: Install Tailscale
         run: |
@@ -52,9 +64,9 @@ jobs:
 
       - name: Verify VNC Port
         run: |
-          echo "Checking VNC port 5900 status..."
-          netstat -an | grep 5900  # 检查端口是否监听
-          nc -z -v "$TAILSCALE_IP" 5900 || echo "VNC port check failed (may be due to CI restrictions)"
+          echo "Checking if VNC port 5900 is listening..."
+          lsof -i :5900 || echo "VNC port 5900 not found (may be blocked by CI environment)"
+          nc -z -v "$TAILSCALE_IP" 5900 || echo "VNC connection test failed (check service status)"
 
       - name: Keep Connection Alive
         run: |
