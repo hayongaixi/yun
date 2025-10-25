@@ -1,4 +1,4 @@
-name: macOS VNC Server (Final Fix)
+name: macOS VNC Server (Xvnc Fix)
 
 on:
   workflow_dispatch:
@@ -12,72 +12,74 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Dependencies with Path Validation
+      - name: Install Dependencies and Verify Commands
         run: |
-          # 安装XQuartz（X11服务器）
+          # 安装XQuartz（X11基础）
           brew install --cask xquartz
           
-          # 强制安装并验证TigerVNC
+          # 安装TigerVNC（服务器命令为Xvnc）
           brew install tiger-vnc || brew reinstall tiger-vnc
           
-          # 关键：同时添加Intel和Apple Silicon的Homebrew路径（避免架构判断错误）
-          export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+          # 配置完整PATH（覆盖Intel和Apple Silicon）
+          export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/Cellar/tiger-vnc/*/bin:$PATH"
           echo "当前PATH: $PATH"
           
-          # 验证VNC命令是否存在（若不存在则直接报错终止）
-          if ! command -v vncserver &> /dev/null; then
-            echo "错误：未找到vncserver，请检查TigerVNC安装"
+          # 验证TigerVNC服务器命令（实际为Xvnc）
+          if ! command -v Xvnc &> /dev/null; then
+            echo "错误：未找到Xvnc（TigerVNC服务器），检查安装"
             exit 1
           fi
-          if ! command -v vncpasswd &> /dev/null; then
-            echo "错误：未找到vncpasswd，请检查TigerVNC安装"
-            exit 1
-          fi
-          echo "vncserver路径: $(which vncserver)"
-          echo "vncpasswd路径: $(which vncpasswd)"
+          echo "Xvnc路径: $(which Xvnc)"
           
           # 启动XQuartz并等待初始化
           open -a XQuartz
-          sleep 8  # 更长等待时间，确保X11服务就绪
+          sleep 8
 
-      - name: Configure VNC Server
+      - name: Configure VNC Server (Xvnc)
         run: |
-          # 强制加载完整PATH
-          export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+          # 加载完整PATH
+          export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/Cellar/tiger-vnc/*/bin:$PATH"
           export LC_ALL=C
-          export DISPLAY=:0  # 绑定X11显示端口
+          export DISPLAY=:0  # 绑定X11显示
           
-          # 生成随机VNC密码
+          # 生成随机密码
           VNC_PASS=$(openssl rand -hex 8)
           echo "VNC_PASSWORD=$VNC_PASS" >> "$GITHUB_ENV"
           
-          # 配置VNC目录
+          # 创建VNC配置目录和密码文件（TigerVNC兼容格式）
           mkdir -p ~/.vnc
+          # 使用x11vnc-passwd生成密码文件（兼容Xvnc）
+          echo "$VNC_PASS" | x11vnc -storepasswd -stdin ~/.vnc/passwd
+          chmod 600 ~/.vnc/passwd
           
-          # 修复：直接使用vncpasswd命令（依赖前面的PATH配置）
-          # 明确指定从标准输入读取密码（兼容TigerVNC语法）
-          echo "$VNC_PASS" | vncpasswd -f > ~/.vnc/passwd
-          chmod 600 ~/.vnc/passwd  # 严格权限，避免VNC报错
-          
-          # 配置VNC启动脚本（确保可执行）
+          # 配置Xvnc启动脚本（替代vncserver的xstartup）
           cat > ~/.vnc/xstartup << 'EOF'
           #!/bin/bash
           export DISPLAY=:0
-          # 启动窗口管理器（若Openbox未安装则自动 fallback）
+          # 启动窗口管理器
           if command -v openbox &> /dev/null; then
             openbox &
           else
-            twm &  # X11默认窗口管理器
+            twm &  # X11默认管理器
           fi
           # 启动终端
           xterm -ls -geometry 80x24+10+10 &
           EOF
           chmod +x ~/.vnc/xstartup
           
-          # 停止残留进程，启动VNC服务器
-          vncserver -kill :0 || true
-          # 显式指定监听所有接口，避免本地绑定
-          vncserver :0 -localhost no -geometry 1280x800 -depth 24
+          # 停止可能的残留进程
+          pkill -f Xvnc || true
+          sleep 2
+          
+          # 直接使用Xvnc启动服务器（替代vncserver）
+          # 参数说明：:0=显示端口，-rfbauth=密码文件，-localhost no=允许外部连接
+          Xvnc :0 \
+            -rfbauth ~/.vnc/passwd \
+            -localhost no \
+            -geometry 1280x800 \
+            -depth 24 \
+            -xstartup ~/.vnc/xstartup &
+          sleep 5  # 等待Xvnc启动
 
       - name: Install Tailscale
         run: |
@@ -89,9 +91,9 @@ jobs:
       - name: Verify VNC Service
         run: |
           export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
-          echo "VNC服务器进程: $(ps aux | grep vncserver | grep -v grep)"
-          echo "检查5900端口监听: $(netstat -an | grep 5900)"
-          nc -z -v "$TAILSCALE_IP" 5900 || echo "端口检查警告 - 可能需要等待VNC完全启动"
+          echo "Xvnc进程状态: $(ps aux | grep Xvnc | grep -v grep)"
+          echo "5900端口监听: $(netstat -an | grep 5900)"
+          nc -z -v "$TAILSCALE_IP" 5900 || echo "端口检查警告 - 等待VNC就绪"
 
       - name: Keep Connection Alive
         run: |
@@ -99,7 +101,7 @@ jobs:
           echo "地址: vnc://${TAILSCALE_IP}:5900"
           echo "用户名: runner"
           echo "密码: ${VNC_PASSWORD}"
-          echo "桌面环境: Openbox 或 twm（默认）"
+          echo "桌面环境: Openbox 或 twm"
           echo "==================="
           while true; do
             echo "[$(date)] VNC运行中 - 终止工作流以关闭"
