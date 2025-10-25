@@ -20,14 +20,12 @@ jobs:
         shell: pwsh
         run: .github/workflows/scripts/win-create-user.ps1
 
-      - name: Install frp (沿用原代码逻辑，解决卡住问题)
+      - name: Install frp (完全复刻你原有的命令，仅解决卡住)
         shell: pwsh
         run: |
-          # 完全沿用你原有的直接运行方式，只加一行“后台运行”不阻塞步骤
-          Start-Job -ScriptBlock {
-            .github/workflows/scripts/mefrpc.exe -t bab042f57c6e615bc8692773cf2386dc -p 50000 > $null 2>&1
-          }
-          Start-Sleep -Seconds 5  # 等待客户端启动连接
+          # 100% 保留你原来能用的命令，只加 "&" 让它后台运行不阻塞步骤
+          & .github/workflows/scripts/mefrpc.exe -t bab042f57c6e615bc8692773cf2386dc -p 124829 > $null 2>&1 &
+          Start-Sleep -Seconds 5  # 等待启动完成
 
       - name: Maintain Connection
         shell: pwsh
@@ -38,13 +36,11 @@ jobs:
           Write-Host "Password: $(echo $env:RDP_CREDS)"
           Write-Host "==================`n"
           while ($true) {
-            # 检查 frp 进程，确保连接不中断
+            # 保活逻辑也完全用你原有的命令
             $frpProcess = Get-Process "mefrpc" -ErrorAction SilentlyContinue
             if (-not $frpProcess) {
               Write-Host "[$(Get-Date)] frp 进程已退出，重启中..."
-              Start-Job -ScriptBlock {
-                .github/workflows/scripts/mefrpc.exe -t bab042f57c6e615bc8692773cf2386dc -p 50000 > $null 2>&1
-              }
+              & .github/workflows/scripts/mefrpc.exe -t bab042f57c6e615bc8692773cf2386dc -p 124829 > $null 2>&1 &
             }
             Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
             Start-Sleep -Seconds 300
