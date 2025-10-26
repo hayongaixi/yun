@@ -1,4 +1,4 @@
-name: macOS 桌面 + mefrp 穿透（完整版·黑屏修复）
+name: macOS 桌面 + mefrp 穿透（完整版·最终修复）
 on:
   workflow_dispatch:
 
@@ -67,8 +67,8 @@ jobs:
           sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionEnabled -bool true
           sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionWidth -int 1280
           sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionHeight -int 800
-          # 重启窗口服务器应用配置
-          sudo launchctl restart com.apple.WindowServer
+          # 修复语法：用 kickstart -k 重启服务（macOS 标准语法）
+          sudo launchctl kickstart -k system/com.apple.WindowServer
           sleep 10
           echo "✅ 虚拟显示器配置完成，分辨率 1280x800"
 
@@ -79,9 +79,9 @@ jobs:
           sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser $NEW_USER
           sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false
           
-          # 重启登录窗口和桌面进程，确保自动登录生效
-          sudo launchctl restart com.apple.loginwindow
-          sudo launchctl restart com.apple.WindowServer
+          # 修复语法：用 kickstart -k 重启服务
+          sudo launchctl kickstart -k system/com.apple.loginwindow
+          sudo launchctl kickstart -k system/com.apple.WindowServer
           sleep 30  # 延长等待，确保桌面完全渲染
           
           # 验证桌面核心组件（WindowServer+Dock，确保不是只启动指针）
@@ -89,7 +89,7 @@ jobs:
             echo "✅ 桌面已完全加载（含Dock栏）"
           else
             echo "⚠️  桌面组件未加载完全，重试一次"
-            sudo launchctl restart com.apple.WindowServer
+            sudo launchctl kickstart -k system/com.apple.WindowServer
             sleep 15
           fi
           
@@ -141,7 +141,7 @@ jobs:
           echo "========================"
           
           while true; do
-            # 温和维持桌面进程
+            # 温和维持桌面进程（用 kickstart -s 启动，不强制重启）
             if ! pgrep WindowServer >/dev/null; then
               echo "⚠️  桌面进程已退出，启动中..."
               sudo launchctl kickstart -s system/com.apple.WindowServer
