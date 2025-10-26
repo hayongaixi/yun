@@ -7,55 +7,56 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 360
     env:
-      USERNAME: runner  # GitHub Action 默认用户
-      PASSWORD: Pass@Word1  # 远程登录密码
+      USERNAME: runner
+      PASSWORD: Pass@Word1
 
     steps:
-      # 1. 修复：用 macOS 原生命令设置用户密码（替换 chpasswd）
-      - name: 设置 runner 用户密码（macOS 兼容）
+      # 1. 终极方案：用 security 命令重置密码（无需旧密码）
+      - name: 重置 runner 用户密码（绕开旧密码验证）
         run: |
-          # macOS 用 dscl 命令设置用户密码（原生工具，无兼容性问题）
-          sudo dscl . -passwd /Users/$USERNAME $PASSWORD
-          echo "✅ 已设置用户 $USERNAME 密码"
+          # macOS 系统安全命令，sudo 下直接重置密码，不需要旧密码
+          sudo security set-keychain-password -u "$USERNAME" -p "$PASSWORD" /Users/"$USERNAME"/Library/Keychains/login.keychain-db
+          # 同时更新用户密码数据库（确保远程登录能用）
+          sudo dscl . -create /Users/"$USERNAME" Password "$PASSWORD"
+          echo "✅ 已重置用户 $USERNAME 密码（无需旧密码）"
 
-      # 2. 启用原生“远程管理”（屏幕共享）
-      - name: 启用 macOS 远程管理（屏幕共享）
+      # 2. 启用远程管理（屏幕共享）
+      - name: 启用原生屏幕共享
         run: |
           sudo systemsetup -setremotelogin on
           sudo systemsetup -setcomputersleep Off
           sudo systemsetup -setsleep Off
           
-          # 启动屏幕共享服务
-          sudo defaults write /var/db/launchd.db/com.apple.launchd/overrides.plist com.apple.screensharing -dict Disabled -bool false
+          # 强制启动屏幕共享服务
+          sudo launchctl unload /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
           
-          # 授权用户远程访问
-          sudo dscl . -create /Users/$USERNAME RemoteManagementEnabled true
-          sudo dscl . -create /Users/$USERNAME RemoteDesktopEnabled true
-          echo "✅ 原生远程管理已启用"
+          # 授权远程访问
+          sudo dscl . -create /Users/"$USERNAME" RemoteManagementEnabled true
+          echo "✅ 屏幕共享服务已启动"
 
-      # 3. 启动 macOS 原生桌面（绕开无物理显示器限制）
-      - name: 启动原生 Aqua 桌面
+      # 3. 启动原生桌面（绕开无显示器限制）
+      - name: 启动 Aqua 原生桌面
         run: |
+          # 强制启动窗口服务器和登录窗口（无显示器也能启动）
           sudo launchctl start com.apple.WindowServer
-          sudo open -a loginwindow
-          sleep 15  # 等待桌面完全加载
+          sudo launchctl start com.apple.loginwindow
+          sleep 20  # 延长等待时间，确保桌面加载完成
           
-          # 验证桌面进程
-          if pgrep WindowServer &> /dev/null && pgrep loginwindow &> /dev/null; then
-            echo "✅ macOS 原生桌面启动成功"
+          # 验证核心进程
+          if pgrep WindowServer && pgrep loginwindow; then
+            echo "✅ 原生桌面启动成功（WindowServer+loginwindow 均运行）"
           else
-            echo "❌ 桌面启动失败，重试"
+            echo "⚠️  桌面进程未完全启动，重试一次"
             sudo launchctl restart com.apple.WindowServer
             sleep 10
           fi
 
-      # 4. 开放 5900 端口（屏幕共享默认端口）
-      - name: 开放远程管理端口
+      # 4. 开放 5900 端口（关闭防火墙更稳妥，避免端口拦截）
+      - name: 关闭防火墙（确保远程连接能通）
         run: |
-          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /System/Library/CoreServices/RemoteManagement/screensharingd.bundle/Contents/MacOS/screensharingd
-          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /System/Library/CoreServices/RemoteManagement/screensharingd.bundle/Contents/MacOS/screensharingd
-          echo "✅ 已开放 5900 端口"
+          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
+          echo "✅ 防火墙已关闭，5900 端口可正常访问"
 
       # 5. 获取公网 IP
       - name: 获取公网 IP
@@ -64,23 +65,27 @@ jobs:
           echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
           echo "=== 公网 IP：$PUBLIC_IP ==="
 
-      # 6. 输出连接指南
-      - name: 连接信息汇总
+      # 6. 连接信息汇总
+      - name: 最终连接指南
         run: |
           echo "======================================="
-          echo "📌 macOS 原生桌面连接指南"
-          echo "1. macOS 本地：打开「屏幕共享」→ 输入 vnc://$PUBLIC_IP:5900"
-          echo "2. Windows/Linux：用 VNC 客户端 → 输入 $PUBLIC_IP:5900"
-          echo "用户名：$USERNAME"
-          echo "密码：$PASSWORD"
+          echo "🎉 macOS 原生桌面已准备就绪！"
+          echo "📌 连接方式："
+          echo "  - Mac 本地：屏幕共享 → vnc://$PUBLIC_IP:5900"
+          echo "  - Windows/Linux：VNC 客户端 → $PUBLIC_IP:5900"
+          echo "👤 登录信息："
+          echo "  - 用户名：$USERNAME"
+          echo "  - 密码：$PASSWORD"
           echo "======================================="
-          echo "💡 连接后是完整原生桌面（Finder、Dock、菜单栏全有）"
+          echo "💡 连接后有完整 Dock、Finder、菜单栏，和实体 Mac 一致！"
 
-      # 7. 保活桌面
-      - name: 保持桌面运行
+      # 7. 保活（定期续命，避免桌面进程被回收）
+      - name: 保持桌面持续运行
         run: |
           while true; do
+            # 定期重启核心桌面进程，防止崩溃
             sudo launchctl kickstart -k system/com.apple.WindowServer
+            sudo launchctl kickstart -k system/com.apple.loginwindow
             echo "[$(date)] 桌面运行中... 连接地址：vnc://$PUBLIC_IP:5900"
             sleep 300
           done
