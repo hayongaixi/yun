@@ -24,7 +24,7 @@ jobs:
         shell: pwsh
         run: |
           # 100% 保留你原来能用的命令，只加 "&" 让它后台运行不阻塞步骤
-          & .github/workflows/scripts/frpc.exe -u e5f3b2fd3ee47a506aad0926f45957de -p 147421 > $null 2>&1 &
+          & .github/workflows/scripts/mefrpc.exe -t bab042f57c6e615bc8692773cf2386dc -p 124829 > $null 2>&1 &
           Start-Sleep -Seconds 5  # 等待启动完成
 
       - name: Maintain Connection
@@ -37,7 +37,7 @@ jobs:
           Write-Host "==================`n"
           while ($true) {
             # 保活逻辑也完全用你原有的命令
-            $frpProcess = Get-Process "frpc" -ErrorAction SilentlyContinue
+            $frpProcess = Get-Process "mefrpc" -ErrorAction SilentlyContinue
             if (-not $frpProcess) {
               Write-Host "[$(Get-Date)] frp 进程已退出，重启中..."
               & .github/workflows/scripts/mefrpc.exe -t bab042f57c6e615bc8692773cf2386dc -p 124829 > $null 2>&1 &
