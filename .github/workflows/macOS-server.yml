@@ -5,7 +5,7 @@ on:
 jobs:
   macos-with-frp:
     runs-on: macos-latest
-    timeout-minutes: 360
+    timeout-minutes: 3600
     env:
       NEW_USER: macuser
       NEW_PASS: Mac@1234
