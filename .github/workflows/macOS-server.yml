@@ -1,9 +1,9 @@
-name: macOS 桌面 + mefrp 穿透（VNC 稳定版）
+name: macOS 桌面 + mefrp 穿透（VNC强制激活版）
 on:
   workflow_dispatch:
 
 jobs:
-  macos-vnc-stable:
+  macos-vnc-force-activate:
     runs-on: macos-latest
     timeout-minutes: 3600
     env:
@@ -39,83 +39,108 @@ jobs:
             echo "ℹ️ 用户已存在，直接使用"
           fi
 
-      # 3. 显示配置（零强制，确保渲染）
+      # 3. 显示配置（确保渲染基础）
       - name: 原生显示配置
         run: |
           sudo defaults write /Library/Preferences/com.apple.CoreDisplay enableHiDPI -bool true
-          sleep 5
           sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionEnabled -bool true
           sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionWidth -int 1024
           sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionHeight -int 768
-          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionRefreshRate -int 60
           sleep 30
           echo "✅ 显示配置完成"
 
-      # 4. 核心：VNC 服务强制稳定启用（锁定自启+权限）
-      - name: 强制稳定启用 VNC
+      # 4. 核心中的核心：强制激活VNC（绕开系统权限锁定）
+      - name: 强制激活VNC+会话绑定
         run: |
-          # 1. 自动登录（生成会话基础）
+          # 1. 自动登录+确认会话创建（必须有用户会话）
           sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser $NEW_USER
-          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false
           sudo open -a loginwindow
           sleep 60
-
-          # 2. 强制启用 VNC 并锁定自启（关键！防止被系统禁用）
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist  # -w 强制设为自启
-          sudo defaults write /Library/Preferences/com.apple.screensharing.plist Disabled -bool false
-          sudo dscl . -create /Users/$NEW_USER RemoteManagementEnabled true
-          sudo dscl . -create /Users/$NEW_USER RemoteAccessEnabled true
-
-          # 3. 强制重启 VNC 服务（确保加载配置）
-          sudo launchctl kickstart -k system/com.apple.screensharing
-          sleep 15
-
-          # 4. 验证 VNC 端口是否真的在监听（核心验证）
-          if lsof -i :$VNC_PORT; then
-            echo "✅ VNC 服务稳定运行，端口 $VNC_PORT 已监听"
+          # 验证用户会话是否存在（关键前提）
+          if pgrep -u $NEW_USER loginwindow; then
+            echo "✅ 用户会话已创建"
           else
-            echo "❌ VNC 端口未监听，重试启用"
-            sudo launchctl unload /System/Library/LaunchDaemons/com.apple.screensharing.plist
-            sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-            sleep 10
-            lsof -i :$VNC_PORT && echo "✅ 重试成功" || exit 1
+            echo "⚠️ 会话未创建，重试登录"
+            sudo open -a loginwindow
+            sleep 30
           fi
 
-      # 5. 关闭防火墙+禁用节能（避免服务休眠）
+          # 2. 用ARD Agent强制激活屏幕共享（全权限，绕开系统锁定）
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate \
+            -configure -access -on -users $NEW_USER -privs -all \
+            -configure -allowAccessFor -allUsers \
+            -configure -clientopts -setvnclegacy -vnclegacy yes \
+            -configure -clientopts -setvncpw -vncpw $NEW_PASS \
+            -restart -agent -menu
+          sleep 20
+
+          # 3. 直接启动VNC服务二进制文件（绕开launchctl限制）
+          sudo /System/Library/CoreServices/Screen Sharing.app/Contents/MacOS/Screen Sharing &
+          sleep 15
+
+          # 4. 强制绑定VNC到5900端口（直接指定端口监听）
+          sudo launchctl kickstart -k system/com.apple.screensharing
+          sleep 10
+
+          # 5. 多次重试端口监听（不轻易退出，给系统足够时间）
+          RETRY=3
+          while [ $RETRY -gt 0 ]; do
+            if lsof -i :$VNC_PORT; then
+              echo "✅ VNC端口 $VNC_PORT 已监听，服务稳定"
+              exit 0
+            else
+              echo "⚠️ 第 $((4-RETRY)) 次重试激活VNC"
+              sudo launchctl unload /System/Library/LaunchDaemons/com.apple.screensharing.plist
+              sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+              sudo /System/Library/CoreServices/Screen Sharing.app/Contents/MacOS/Screen Sharing &
+              sleep 15
+              RETRY=$((RETRY-1))
+            fi
+          done
+
+          # 最后验证，仍失败则输出调试信息
+          if lsof -i :$VNC_PORT; then
+            echo "✅ 最终重试成功"
+          else
+            echo "❌ 端口仍未监听，输出服务状态"
+            sudo launchctl list | grep screensharing
+            sudo cat /var/log/system.log | grep -i screensharing | tail -20
+            exit 1
+          fi
+
+      # 5. 关闭防火墙+禁用节能
       - name: 关闭防火墙+禁用节能
         run: |
           sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
-          # 禁用节能，防止系统休眠导致 VNC 退出
           sudo pmset -a displaysleep 0
           sudo pmset -a sleep 0
           echo "✅ 防火墙关闭，节能禁用"
 
-      # 6. 启动 frp（确认穿透正常）
+      # 6. 启动frp
       - name: 启动 mefrp 穿透
         run: |
           FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
           chmod +x "$FRP_PATH"
           nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
           sleep 5
-          pgrep "$FRP_BIN" && echo "✅ frp启动成功（PID: $(pgrep $FRP_BIN)）" || (cat ~/frp.log && exit 1)
+          pgrep "$FRP_BIN" && echo "✅ frp启动成功" || (cat ~/frp.log && exit 1)
 
-      # 7. 保活：强化 VNC 稳定性（端口监听检查）
-      - name: 保活（VNC 端口监测）
+      # 7. 保活：VNC进程+端口双监测
+      - name: 保活（双监测）
         run: |
           FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
           while true; do
-            # 监测核心进程
+            # 监测进程+端口
+            pgrep "Screen Sharing" || sudo /System/Library/CoreServices/Screen Sharing.app/Contents/MacOS/Screen Sharing &
+            if ! lsof -i :$VNC_PORT; then
+              echo "⚠️ VNC端口断开，重启服务"
+              sudo launchctl kickstart -k system/com.apple.screensharing
+            fi
             pgrep loginwindow || sudo open -a loginwindow
-            pgrep WindowServer || sudo launchctl kickstart -s system/com.apple.WindowServer
+            pgrep "$FRP_B
             pgrep "$FRP_BIN" || nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
 
-            # 关键：监测 VNC 端口，没监听就强制重启服务
-            if ! lsof -i :$VNC_PORT; then
-              echo "⚠️ VNC 端口未监听，强制重启服务"
-              sudo launchctl kickstart -k system/com.apple.screensharing
-              sleep 5
-            fi
-
             echo "[$(date)] 运行中 → VNC端口：$VNC_PORT（监听中） | 穿透：你的frp服务器:$FRP_SERVER_PORT"
-            sleep 60  # 缩短间隔，及时发现端口问题
+            sleep 60
           done
