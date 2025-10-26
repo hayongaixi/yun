@@ -72,7 +72,7 @@ else
 fi
 
 # 启动frp（端口55555，和.yml里的代理信息一致）
-nohup "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 55555 > /var/log/frp.log 2>&1 &
+nohup "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 124913 > /var/log/frp.log 2>&1 &
 sleep 3
 if pgrep "$FRP_BIN" >/dev/null; then
     echo "✅ frp隧道启动成功（PID: $(pgrep $FRP_BIN)）"
