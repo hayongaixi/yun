@@ -1,4 +1,4 @@
-name: macOS 桌面 + mefrp 穿透（完整版）
+name: macOS 桌面 + mefrp 穿透（完整版·黑屏修复）
 on:
   workflow_dispatch:
 
@@ -20,9 +20,9 @@ jobs:
     steps:
       # 最关键的一步：克隆仓库代码到 runner（必须加！）
       - name: 克隆仓库代码（获取所有文件）
-        uses: actions/checkout@v4  # 拉取当前仓库到 GITHUB_WORKSPACE 目录
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 拉取完整仓库，避免浅克隆遗漏文件
+          fetch-depth: 0
 
       # 1. 验证仓库是否被正确克隆（调试用）
       - name: 确认仓库文件已拉取
@@ -60,23 +60,51 @@ jobs:
           sudo dseditgroup -o edit -a $NEW_USER -t user admin
           echo "✅ 新用户创建成功"
 
-      # 4. 启动桌面和VNC服务
-      - name: 启动桌面和VNC服务
+      # 新增：配置虚拟显示器（解决黑屏核心步骤）
+      - name: 配置虚拟显示器（1280x800）
         run: |
-          sudo launchctl start com.apple.WindowServer
-          sudo -u $NEW_USER open -a loginwindow
-          sleep 20
+          # 强制 macOS 识别虚拟显示器并分配分辨率
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionEnabled -bool true
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionWidth -int 1280
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionHeight -int 800
+          # 重启窗口服务器应用配置
+          sudo launchctl restart com.apple.WindowServer
+          sleep 10
+          echo "✅ 虚拟显示器配置完成，分辨率 1280x800"
+
+      # 优化：启动桌面+自动登录+VNC（解决登录窗口卡住问题）
+      - name: 启动桌面+自动登录+VNC服务
+        run: |
+          # 配置新用户自动登录（跳过登录窗口）
+          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser $NEW_USER
+          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false
+          
+          # 重启登录窗口和桌面进程，确保自动登录生效
+          sudo launchctl restart com.apple.loginwindow
+          sudo launchctl restart com.apple.WindowServer
+          sleep 30  # 延长等待，确保桌面完全渲染
+          
+          # 验证桌面核心组件（WindowServer+Dock，确保不是只启动指针）
+          if pgrep WindowServer && pgrep loginwindow && pgrep Dock; then
+            echo "✅ 桌面已完全加载（含Dock栏）"
+          else
+            echo "⚠️  桌面组件未加载完全，重试一次"
+            sudo launchctl restart com.apple.WindowServer
+            sleep 15
+          fi
+          
+          # 启用并确认VNC服务
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
           sudo dscl . -create /Users/$NEW_USER RemoteManagementEnabled true
-          echo "✅ 桌面和VNC服务启动成功"
+          echo "✅ VNC服务已启用，端口：$VNC_PORT"
 
       # 5. 关闭防火墙
       - name: 关闭防火墙
         run: |
           sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
-          echo "✅ 防火墙已关闭"
+          echo "✅ 防火墙已关闭，穿透无端口拦截"
 
-      # 6. 启动 mefrp 穿透（现在仓库已克隆，文件能找到）
+      # 6. 启动 mefrp 穿透
       - name: 启动 mefrp 穿透
         run: |
           FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
@@ -97,14 +125,14 @@ jobs:
           
           if pgrep "$FRP_BIN" >/dev/null; then
             echo "✅ mefrp 启动成功（PID: $(pgrep $FRP_BIN)）"
+            echo "📌 穿透路径：macOS $VNC_PORT 端口 → frp 服务器 $FRP_SERVER_PORT 端口"
           else
             echo "❌ mefrp 启动失败，日志："
             cat ~/frp.log
             exit 1
           fi
 
-      # 7. 保活
-# 8. 温和保活（避免系统回收，稳定运行6小时）
+      # 7. 稳定保活（避免系统回收+维持进程）
       - name: 稳定保活桌面和 frp
         run: |
           FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
@@ -112,9 +140,8 @@ jobs:
           echo "FRP 路径：$FRP_PATH"
           echo "========================"
           
-          # 单循环+温和保活：只“启动/维持”进程，不强制重启
           while true; do
-            # 温和维持 WindowServer（存在则不操作，不存在才启动）
+            # 温和维持桌面进程
             if ! pgrep WindowServer >/dev/null; then
               echo "⚠️  桌面进程已退出，启动中..."
               sudo launchctl kickstart -s system/com.apple.WindowServer
@@ -126,7 +153,7 @@ jobs:
               nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
             fi
             
-            # 高频输出日志（每2分钟一次），让 GitHub 知道 job 还在运行
-            echo "[$(date)] 服务稳定运行 → 穿透端口：$FRP_SERVER_PORT | 桌面进程：$(pgrep WindowServer >/dev/null && echo "运行中" || echo "未运行") | frp 进程：$(pgrep "$FRP_BIN" >/dev/null && echo "运行中" || echo "未运行")"
-            sleep 120  # 2分钟输出一次，避免系统判定“无响应”
+            # 高频输出状态，避免job被回收
+            echo "[$(date)] 服务稳定运行 → 穿透端口：$FRP_SERVER_PORT | 桌面：$(pgrep WindowServer >/dev/null && echo "运行中" || echo "未运行") | frp：$(pgrep "$FRP_BIN" >/dev/null && echo "运行中" || echo "未运行")"
+            sleep 120
           done
