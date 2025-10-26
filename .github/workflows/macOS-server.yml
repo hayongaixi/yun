@@ -1,28 +1,64 @@
-name: macOS ssh Server
+name: macOS 桌面体验（VNC 连接）
 on:
   workflow_dispatch:
 
 jobs:
-  macos-experience:
+  macos-desktop:
     runs-on: macos-latest
     timeout-minutes: 360
+    env:
+      VNC_PASSWORD: "Pass@Word1"  # VNC 连接密码，可自定义
 
     steps:
-      # 1. 自动生成临时 SSH 密钥对（无需手动配置）
-      - name: 生成临时 SSH 密钥
+      # 1. 安装图形化依赖（XQuartz+窗口管理器+VNC服务器）
+      - name: 安装桌面相关组件
         run: |
-          # 生成无密码的临时密钥对（仅本次会话有效）
-          ssh-keygen -t ed25519 -N "" -f ~/tmp_ssh_key -C "temporary-macos-key"
-          # 将公钥添加到授权列表（允许用该密钥连接）
-          cat ~/tmp_ssh_key.pub >> ~/.ssh/authorized_keys
-          chmod 600 ~/.ssh/authorized_keys
-          # 输出私钥内容（用户需要复制这个私钥到本地）
-          echo "=== 临时 SSH 私钥（复制到本地文件，如 C:\tmp_ssh_key） ==="
-          cat ~/tmp_ssh_key
-          echo -e "\n=== 保存后，用以下命令连接 ==="
+          # 安装 XQuartz（macOS 图形化基础）、轻量窗口管理器（fluxbox）、VNC服务器（tigervnc）
+          brew install xquartz fluxbox tigervnc
+          # 启动 XQuartz 并配置图形化环境
+          open -a XQuartz
+          sleep 10  # 等待 XQuartz 启动
+          # 允许 X11 远程访问
+          defaults write org.macosforge.xquartz.X11 nolisten_tcp -bool false
+          defaults write org.macosforge.xquartz.X11 app_to_run -string "/usr/local/bin/fluxbox"
+          echo "export DISPLAY=:0" >> ~/.bashrc
+          source ~/.bashrc
 
-      # 2. 启动 tmate 终端（开放连接，不限制仅actor）
-      - name: 启动 macOS 终端（复制下方链接/命令连接）
-        uses: mxschmitt/action-tmate@v3
-        with:
-          limit-access-to-actor: false  # 关闭限制，允许用临时密钥连接
+      # 2. 配置 VNC 服务器（设置密码+启动）
+      - name: 配置并启动 VNC 服务
+        run: |
+          # 设置 VNC 密码（密码在 env 中定义）
+          echo "$VNC_PASSWORD" | vncpasswd -f > ~/.vnc/passwd
+          chmod 600 ~/.vnc/passwd
+          # 启动 VNC 服务器（分辨率 1280x800，端口 5900）
+          vncserver :0 -geometry 1280x800 -depth 24 -passwordfile ~/.vnc/passwd
+          # 查看 VNC 服务状态
+          vncserver -list
+          echo -e "\n=== VNC 服务已启动 ==="
+
+      # 3. 获取 macOS 运行器公网 IP（用于 VNC 连接）
+      - name: 获取公网 IP
+        id: ip
+        run: |
+          PUBLIC_IP=$(curl -s icanhazip.com)
+          echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
+          echo "=== macOS 公网 IP：$PUBLIC_IP ==="
+
+      # 4. 输出连接信息（关键！用户需要这些参数）
+      - name: 显示 VNC 连接信息
+        run: |
+          echo "======================================="
+          echo "📌 macOS 桌面 VNC 连接信息"
+          echo "服务器地址：$PUBLIC_IP:5900"
+          echo "密码：$VNC_PASSWORD"
+          echo "======================================="
+          echo "⚠️  注意：用 VNC 客户端连接（如 RealVNC、TightVNC）"
+          echo "⚠️  桌面是轻量 fluxbox，无原生 macOS Dock/Finder"
+
+      # 5. 保活服务（不让 workflow 退出）
+      - name: 保持桌面运行
+        run: |
+          while true; do
+            echo "[$(date)] 桌面运行中... VNC 连接：$PUBLIC_IP:5900"
+            sleep 300
+          done
