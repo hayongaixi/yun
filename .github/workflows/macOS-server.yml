@@ -104,12 +104,23 @@ jobs:
           fi
 
       # 7. 保活
-      - name: 保持服务运行
+      - name: 保持桌面和 frp 稳定运行
         run: |
+          # 重新定义 FRP 绝对路径（保活步骤是独立的，局部变量需重新声明）
+          FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
+          
+          # 单循环即可，去掉嵌套（避免进程被系统判定为异常占用）
           while true; do
+            # 定期重启桌面核心进程（300秒一次，不频繁）
             sudo launchctl kickstart -k system/com.apple.WindowServer
+            
+            # 检查 frp 是否存活，死了就重启
             if ! pgrep "$FRP_BIN" >/dev/null; then
-              nohup "$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
+              echo "⚠️ frp 进程已退出，正在重启..."
+              nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
             fi
-            sleep 300
+            
+            # 输出运行状态，方便查看
+            echo "[$(date)] 服务稳定运行中 → 穿透端口：$FRP_SERVER_PORT"
+            sleep 300  # 5分钟一次保活，资源占用低
           done
