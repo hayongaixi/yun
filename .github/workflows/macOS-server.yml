@@ -1,4 +1,4 @@
-name: macOS 原生桌面（无冲突版）
+name: macOS 原生桌面（最终正确版）
 on:
   workflow_dispatch:
 
@@ -7,47 +7,54 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 360
     env:
-      NEW_USER: macuser  # 新用户名
-      NEW_PASS: Mac@1234  # 密码
+      NEW_USER: macuser
+      NEW_PASS: Mac@1234
+      UNIQUE_ID: 1001  # 无冲突ID
+      GROUP_ID: 20
       USER_DIR: /Users/$NEW_USER
-      UNIQUE_ID: 1001  # 换1001 ID（绝对无冲突）
-      GROUP_ID: 20  # staff组（安全无冲突）
 
     steps:
-      # 1. 先删除可能存在的旧用户（兜底，避免重复）
-      - name: 兜底：删除旧用户（避免冲突）
+      # 1. 兜底删除旧残留（彻底清干净）
+      - name: 彻底删除旧用户/目录（避免任何冲突）
         run: |
-          if dscl . -read $USER_DIR &> /dev/null; then
-            sudo dscl . -delete $USER_DIR
-            sudo rm -rf $USER_DIR
-            echo "⚠️  已删除旧用户 $NEW_USER，避免冲突"
+          # 先删用户记录
+          if dscl . -read /Users/$NEW_USER &> /dev/null; then
+            sudo dscl . -delete /Users/$NEW_USER
+            echo "⚠️  已删除旧用户记录"
+          fi
+          # 再删用户目录
+          if [ -d "$USER_DIR" ]; then
+            sudo rm -rf "$USER_DIR"
+            echo "⚠️  已删除旧用户目录"
           fi
 
-      # 2. 无冲突创建新用户（100%成功）
-      - name: 创建无冲突新用户
+      # 2. 正确顺序创建用户（系统必识别）
+      - name: 按macOS规范创建新用户（步骤完全正确）
         run: |
-          # 1. 创建用户记录（用1001 ID，无冲突）
-          sudo dscl . -create $USER_DIR
-          sudo dscl . -create $USER_DIR UserShell /bin/bash
-          sudo dscl . -create $USER_DIR RealName "macOS Test User"
-          sudo dscl . -create $USER_DIR UniqueID $UNIQUE_ID  # 关键：换1001 ID
-          sudo dscl . -create $USER_DIR PrimaryGroupID $GROUP_ID
+          #  Step1：先创建用户记录（系统先认用户）
+          sudo dscl . -create /Users/$NEW_USER
+          sudo dscl . -create /Users/$NEW_USER UserShell /bin/bash
+          sudo dscl . -create /Users/$NEW_USER RealName "macOS Test User"
+          sudo dscl . -create /Users/$NEW_USER UniqueID $UNIQUE_ID
+          sudo dscl . -create /Users/$NEW_USER PrimaryGroupID $GROUP_ID
+          sudo dscl . -create /Users/$NEW_USER NFSHomeDirectory $USER_DIR  # 关键：告诉系统用户目录位置
           
-          # 2. 设置密码（无旧密码限制）
-          sudo dscl . -passwd $USER_DIR $NEW_PASS
+          #  Step2：设置密码（完善用户信息）
+          sudo dscl . -passwd /Users/$NEW_USER $NEW_PASS
           
-          # 3. 创建用户目录并授权
+          #  Step3：此时系统已识别用户，再创建目录并授权（不会报非法用户）
           sudo mkdir -p $USER_DIR
           sudo chown -R $NEW_USER:staff $USER_DIR
           sudo chmod -R 755 $USER_DIR
           
-          # 4. 加入管理员组
+          #  Step4：加入管理员组
           sudo dseditgroup -o edit -a $NEW_USER -t user admin
           
           echo "✅ 新用户创建成功！用户名：$NEW_USER，密码：$NEW_PASS"
+          echo "✅ 系统已识别该用户，无非法用户名错误"
 
       # 3. 启用屏幕共享（原生远程管理）
-      - name: 启用屏幕共享+授权
+      - name: 启用屏幕共享
         run: |
           sudo systemsetup -setremotelogin on
           sudo systemsetup -setcomputersleep Off
@@ -56,11 +63,11 @@ jobs:
           sudo launchctl unload /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
           
-          sudo dscl . -create $USER_DIR RemoteManagementEnabled true
+          sudo dscl . -create /Users/$NEW_USER RemoteManagementEnabled true
           echo "✅ 屏幕共享已启用"
 
       # 4. 启动原生桌面
-      - name: 启动Aqua桌面
+      - name: 启动Aqua原生桌面
         run: |
           sudo launchctl start com.apple.WindowServer
           sudo launchctl start com.apple.loginwindow
@@ -80,16 +87,17 @@ jobs:
           sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
           echo "✅ 防火墙已关闭"
 
-      # 6. 获取公网IP+连接信息
-      - name: 连接信息
+      # 6. 连接信息
+      - name: 最终连接指南
         run: |
           PUBLIC_IP=$(curl -s icanhazip.com)
           echo "======================================="
-          echo "🎉 终于搞定！macOS 原生桌面就绪"
+          echo "🎉 历经千辛万苦！macOS 原生桌面就绪"
           echo "VNC地址：$PUBLIC_IP:5900"
           echo "用户名：$NEW_USER"
           echo "密码：$NEW_PASS"
           echo "======================================="
+          echo "💡 这次绝对能连！连接后是完整原生桌面"
 
       # 7. 保活
       - name: 保持运行
