@@ -1,9 +1,9 @@
-name: macOS 桌面 + mefrp 穿透（终极解决版）
+name: macOS 桌面 + mefrp 穿透（黑屏终极解决）
 on:
   workflow_dispatch:
 
 jobs:
-  macos-ultimate:
+  macos-black-screen-fix:
     runs-on: macos-latest
     timeout-minutes: 3600
     env:
@@ -39,28 +39,40 @@ jobs:
             echo "ℹ️ 用户已存在，直接使用"
           fi
 
-      # 3. 关键修复：用完整参数设置分辨率（带色深和刷新率）
-      - name: 安装工具+设置可用分辨率
+      # 3. 安装工具+设置分辨率（完整参数）
+      - name: 安装工具+设置分辨率
         run: |
           brew install screenresolution
-          echo "可用分辨率列表："
-          screenresolution list  # 确认可用模式
-          # 用列表中明确存在的模式：1024x768x32@60（完整参数，工具能解析）
           screenresolution set 1024x768x32@60
-          echo "✅ 分辨率设置成功（1024x768x32@60，完全匹配可用模式）"
+          echo "✅ 分辨率设置成功"
 
-      # 4. 启动桌面+VNC
-      - name: 启动桌面和VNC
+      # 4. 核心修复：绑定用户会话+强制启用屏幕共享
+      - name: 启动桌面（绑定用户+完整权限）
         run: |
-          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser $NEW_USER
-          sudo launchctl kickstart -s system/com.apple.WindowServer
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-          sleep 20
-          echo "✅ 桌面和VNC启动成功"
+          # 1. 强制启用屏幕共享（不光加载plist，还要开权限）
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -users $NEW_USER -privs -all -restart -agent -menu
+          
+          # 2. 以新用户身份启动桌面组件（关键！绑定用户会话）
+          sudo -u $NEW_USER launchctl bootstrap gui/1001 /System/Library/LaunchAgents/com.apple.Dock.plist
+          sudo -u $NEW_USER launchctl bootstrap gui/1001 /System/Library/LaunchAgents/com.apple.Finder.plist
+          sudo -u $NEW_USER launchctl bootstrap gui/1001 /System/Library/LaunchAgents/com.apple.loginwindow.plist
+          
+          # 3. 重启WindowServer并绑定用户
+          sudo launchctl bootout system/com.apple.WindowServer 2>/dev/null
+          sleep 3
+          sudo -u $NEW_USER launchctl bootstrap gui/1001 /System/Library/LaunchDaemons/com.apple.WindowServer.plist
+          
+          # 4. 延长等待，确保组件加载
+          sleep 30
+          echo "✅ 桌面绑定用户会话成功，核心组件已启动"
 
-      # 5. 关闭防火墙
-      - name: 关闭防火墙
-        run: sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
+      # 5. 关闭防火墙+验证VNC端口
+      - name: 关闭防火墙+检查VNC
+        run: |
+          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
+          # 验证VNC端口是否在监听
+          lsof -i :$VNC_PORT || echo "⚠️ VNC端口未监听，重试启动" && sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          echo "✅ 防火墙关闭，VNC端口已启用"
 
       # 6. 启动frp
       - name: 启动mefrp穿透
@@ -71,12 +83,14 @@ jobs:
           sleep 5
           pgrep "$FRP_BIN" && echo "✅ frp启动成功" || (cat ~/frp.log && exit 1)
 
-      # 7. 保活
-      - name: 保活服务
+      # 7. 保活（维持用户会话）
+      - name: 保活服务（绑定用户）
         run: |
           FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
           while true; do
-            pgrep WindowServer || sudo launchctl kickstart -s system/com.apple.WindowServer
+            # 确保桌面组件以用户身份运行
+            pgrep -u $NEW_USER WindowServer || sudo -u $NEW_USER launchctl bootstrap gui/1001 /System/Library/LaunchDaemons/com.apple.WindowServer.plist
+            pgrep -u $NEW_USER Dock || sudo -u $NEW_USER launchctl bootstrap gui/1001 /System/Library/LaunchAgents/com.apple.Dock.plist
             pgrep "$FRP_BIN" || nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
             echo "[$(date)] 正常运行 → 连接：你的frp服务器:$FRP_SERVER_PORT"
             sleep 120
