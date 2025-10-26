@@ -1,24 +1,43 @@
-name: macOS 桌面 + mefrp 穿透
+name: macOS 桌面 + mefrp 穿透（完整版）
 on:
   workflow_dispatch:
 
 jobs:
   macos-with-frp:
     runs-on: macos-latest
-    timeout-minutes: 3600
+    timeout-minutes: 360
     env:
       NEW_USER: macuser
       NEW_PASS: Mac@1234
       UNIQUE_ID: 1001
       GROUP_ID: 20
       USER_DIR: /Users/$NEW_USER
-      FRP_BIN: mefrpc_arm64  # 你的frp客户端文件名
-      FRP_TOKEN: bab042f57c6e615bc8692773cf2386dc  # 你的token
-      FRP_SERVER_PORT: 125545  # 你的frp服务器端口
-      VNC_PORT: 5900  # macOS 屏幕共享默认端口
+      FRP_BIN: mefrpc_arm64
+      FRP_TOKEN: bab042f57c6e615bc8692773cf2386dc
+      FRP_SERVER_PORT: 125545
+      VNC_PORT: 5900
 
     steps:
-      # 1. 清理旧用户
+      # 最关键的一步：克隆仓库代码到 runner（必须加！）
+      - name: 克隆仓库代码（获取所有文件）
+        uses: actions/checkout@v4  # 拉取当前仓库到 GITHUB_WORKSPACE 目录
+        with:
+          fetch-depth: 0  # 拉取完整仓库，避免浅克隆遗漏文件
+
+      # 1. 验证仓库是否被正确克隆（调试用）
+      - name: 确认仓库文件已拉取
+        run: |
+          echo "当前工作目录：$GITHUB_WORKSPACE"
+          echo "查看仓库根目录文件："
+          ls -la "$GITHUB_WORKSPACE"
+          echo "查看 .github 目录："
+          ls -la "$GITHUB_WORKSPACE/.github"
+          echo "查看 .github/workflows 目录："
+          ls -la "$GITHUB_WORKSPACE/.github/workflows"
+          echo "查看 scripts 目录（若存在）："
+          ls -la "$GITHUB_WORKSPACE/.github/workflows/scripts" 2>/dev/null
+
+      # 2. 清理旧用户
       - name: 清理旧用户残留
         run: |
           if dscl . -read /Users/$NEW_USER &> /dev/null; then
@@ -26,7 +45,7 @@ jobs:
             sudo rm -rf $USER_DIR
           fi
 
-      # 2. 创建新用户（正确步骤）
+      # 3. 创建新用户
       - name: 创建新用户
         run: |
           sudo dscl . -create /Users/$NEW_USER
@@ -41,102 +60,56 @@ jobs:
           sudo dseditgroup -o edit -a $NEW_USER -t user admin
           echo "✅ 新用户创建成功"
 
-      # 3. 启动原生桌面+屏幕共享
+      # 4. 启动桌面和VNC服务
       - name: 启动桌面和VNC服务
         run: |
-          # 启动窗口服务器
           sudo launchctl start com.apple.WindowServer
           sudo -u $NEW_USER open -a loginwindow
           sleep 20
-          
-          # 启用屏幕共享（VNC 5900端口）
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
           sudo dscl . -create /Users/$NEW_USER RemoteManagementEnabled true
-          echo "✅ 桌面和VNC服务启动成功（端口：$VNC_PORT）"
+          echo "✅ 桌面和VNC服务启动成功"
 
-      # 4. 关闭防火墙（确保本地端口可被frp访问）
+      # 5. 关闭防火墙
       - name: 关闭防火墙
         run: |
           sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
-          echo "✅ 防火墙已关闭，$VNC_PORT 端口开放"
+          echo "✅ 防火墙已关闭"
 
-      # 5. 启动 mefrp 穿透（核心：把5900端口转发到frp服务器）
-      - name: 启动 mefrp 穿透（复用 Ubuntu 逻辑+适配 macOS）
+      # 6. 启动 mefrp 穿透（现在仓库已克隆，文件能找到）
+      - name: 启动 mefrp 穿透
         run: |
-          FRP_BIN="mefrpc_arm64"  # 明确指定你的arm64文件名
-          FRP_PATH=".github/workflows/scripts/$FRP_BIN"
+          FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
           
-          # 复用 Ubuntu 中的绝对路径计算方式（兼容 macOS）
-          REPO_NAME=$(basename "$GITHUB_REPOSITORY")  # 获取仓库名（如 yun）
-          ABS_FRP_PATH="/Users/runner/work/$REPO_NAME/$REPO_NAME/$FRP_PATH"  # macOS runner 路径格式
-          
-          echo "===== 路径调试信息 ====="
-          echo "仓库名：$REPO_NAME"
-          echo "相对路径：$FRP_PATH"
-          echo "绝对路径：$ABS_FRP_PATH"
-          echo "GITHUB_WORKSPACE：$GITHUB_WORKSPACE"
-          echo "------------------------"
-          echo "查看 .github/workflows/ 目录内容："
-          ls -la "$GITHUB_WORKSPACE/.github/workflows/"  # 确认是否有 scripts 目录
-          echo "------------------------"
-          echo "查看 scripts 目录（若存在）："
-          ls -la "$GITHUB_WORKSPACE/.github/workflows/scripts/" 2>/dev/null  # 列出 scripts 下的文件
-          echo "========================="
-          
-          # 查找文件（先试相对路径，再试绝对路径）
+          echo "===== 路径检查 ====="
+          echo "FRP 文件路径：$FRP_PATH"
           if [ -f "$FRP_PATH" ]; then
-              echo "✅ 相对路径找到文件：$FRP_PATH"
-              chmod +x "$FRP_PATH"
-          elif [ -f "$ABS_FRP_PATH" ]; then
-              echo "✅ 绝对路径找到文件：$ABS_FRP_PATH"
-              FRP_PATH="$ABS_FRP_PATH"
-              chmod +x "$FRP_PATH"
+            echo "✅ 找到 frp 客户端文件"
           else
-              echo "❌ 未找到 $FRP_BIN！可能原因："
-              echo "1. 文件未提交到当前分支（检查 git status）"
-              echo "2. 文件名大小写不匹配（macOS runner 大小写敏感）"
-              echo "3. 路径错误（实际路径见上方调试信息）"
-              exit 1
+            echo "❌ 仍未找到文件！scripts 目录内容："
+            ls -la "$GITHUB_WORKSPACE/.github/workflows/scripts" 2>/dev/null
+            exit 1
           fi
           
-          # 启动 frp
+          chmod +x "$FRP_PATH"
           nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
           sleep 5
           
-          # 检查启动状态
           if pgrep "$FRP_BIN" >/dev/null; then
-              echo "✅ mefrp 启动成功（PID: $(pgrep $FRP_BIN)）"
+            echo "✅ mefrp 启动成功（PID: $(pgrep $FRP_BIN)）"
           else
-              echo "❌ mefrp 启动失败，日志："
-              cat ~/frp.log
-              exit 1
+            echo "❌ mefrp 启动失败，日志："
+            cat ~/frp.log
+            exit 1
           fi
-        env:
-          FRP_TOKEN: bab042f57c6e615bc8692773cf2386dc
-          FRP_SERVER_PORT: 125545
 
-      # 6. 输出最终连接指南
-      - name: 连接信息汇总（必看！）
-        run: |
-          echo "======================================="
-          echo "🎉 所有服务就绪！连接方式："
-          echo "1. VNC 客户端 → 输入 frp服务器地址:$FRP_SERVER_PORT"
-          echo "2. 登录信息：用户名 $NEW_USER，密码 $NEW_PASS"
-          echo "3. 穿透路径：macOS本地 $VNC_PORT → frp服务器 $FRP_SERVER_PORT"
-          echo "======================================="
-          echo "💡 若连接失败，查看frp日志：cat ~/frp.log"
-
-      # 7. 保活（维持桌面和frp运行）
-      - name: 保持所有服务运行
+      # 7. 保活
+      - name: 保持服务运行
         run: |
           while true; do
-            # 定期重启桌面进程
             sudo launchctl kickstart -k system/com.apple.WindowServer
-            # 检查frp是否存活，死了就重启
             if ! pgrep "$FRP_BIN" >/dev/null; then
-              echo "⚠️ frp已退出，重启中..."
-              nohup ".github/workflows/scripts/$FRP_BIN" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
+              nohup "$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
             fi
-            echo "[$(date)] 服务运行中... 穿透端口：$FRP_SERVER_PORT"
             sleep 300
           done
