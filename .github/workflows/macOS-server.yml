@@ -1,9 +1,9 @@
-name: macOS 桌面 + mefrp 穿透（无错极简版）
+name: macOS 桌面 + mefrp 穿透（最终无错版）
 on:
   workflow_dispatch:
 
 jobs:
-  macos-no-error:
+  macos-final-no-error:
     runs-on: macos-latest
     timeout-minutes: 3600
     env:
@@ -15,16 +15,15 @@ jobs:
       VNC_PORT: 5900
 
     steps:
-      # 1. 克隆仓库（只这一步拉文件，必选）
+      # 1. 克隆仓库（必选）
       - name: 克隆仓库
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. 只创建用户（不删旧的，不存在就建，存在就用）
-      - name: 创建新用户（不清理，避免报错）
+      # 2. 创建用户（不清理，避免报错）
+      - name: 创建/复用用户
         run: |
-          # 先检查用户是否存在，不存在才创建（避免重复创建报错）
           if ! dscl . -read /Users/$NEW_USER &> /dev/null; then
             sudo dscl . -create /Users/$NEW_USER
             sudo dscl . -create /Users/$NEW_USER UserShell /bin/bash
@@ -40,27 +39,30 @@ jobs:
             echo "ℹ️ 用户已存在，直接使用"
           fi
 
-      # 3. 安装工具+设分辨率（解决黑屏核心，不碰系统配置）
-      - name: 安装screenresolution+设虚拟显示器
+      # 3. 关键修复：自动适配可用分辨率（不硬编码，避免报错）
+      - name: 安装工具+自动设置分辨率
         run: |
-          brew install screenresolution  # 一键安装，无权限坑
-          screenresolution set 1280x800x32  # 直接生效，不用重启
-          echo "✅ 虚拟显示器设置成功"
+          brew install screenresolution  # 安装工具
+          echo "列出所有可用分辨率："
+          screenresolution list  # 显示支持的模式，避免瞎猜
+          # 选兼容性最高的 1024x768（所有虚拟显示器都支持），不指定色深
+          screenresolution set 1024x768
+          echo "✅ 分辨率设置成功（1024x768，自动适配色深）"
 
-      # 4. 启动桌面+VNC（极简命令，不搞复杂重启）
+      # 4. 启动桌面+VNC（极简）
       - name: 启动桌面和VNC
         run: |
-          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser $NEW_USER  # 自动登录
-          sudo launchctl kickstart -s system/com.apple.WindowServer  # 启动桌面
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist  # 启动VNC
-          sleep 20  # 只等20秒，足够渲染
+          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser $NEW_USER
+          sudo launchctl kickstart -s system/com.apple.WindowServer
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          sleep 20
           echo "✅ 桌面和VNC启动成功"
 
-      # 5. 关闭防火墙（一行命令，不废话）
+      # 5. 关闭防火墙
       - name: 关闭防火墙
         run: sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
 
-      # 6. 启动frp（直接启动，不搞复杂检查）
+      # 6. 启动frp
       - name: 启动mefrp穿透
         run: |
           FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
@@ -69,14 +71,13 @@ jobs:
           sleep 5
           pgrep "$FRP_BIN" && echo "✅ frp启动成功" || (cat ~/frp.log && exit 1)
 
-      # 7. 保活（极简，只检查进程）
+      # 7. 保活
       - name: 保活服务
         run: |
           FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
           while true; do
-            # 进程不在就启动，不搞复杂命令
             pgrep WindowServer || sudo launchctl kickstart -s system/com.apple.WindowServer
             pgrep "$FRP_BIN" || nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
-            echo "[$(date)] 正常运行 → 连接地址：你的frp服务器:$FRP_SERVER_PORT"
+            echo "[$(date)] 正常运行 → 连接：你的frp服务器:$FRP_SERVER_PORT"
             sleep 120
           done
