@@ -61,24 +61,34 @@ jobs:
           echo "✅ 防火墙已关闭，$VNC_PORT 端口开放"
 
       # 5. 启动 mefrp 穿透（核心：把5900端口转发到frp服务器）
-      - name: 启动 mefrp 内网穿透
+      - name: 启动 mefrp 内网穿透（绝对路径修复）
         run: |
-          # 确认frp客户端路径（和你的仓库路径一致）
-          FRP_PATH=".github/workflows/scripts/$FRP_BIN"
-          # 赋予执行权限（macOS 可能需要）
-          chmod +x "$FRP_PATH"
+          # 关键：用 GITHUB_WORKSPACE 获取仓库根目录绝对路径
+          FRP_ABS_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
           
-          # 启动frp，转发本地5900端口（VNC）到frp服务器
-          # 命令和Linux类似，日志用用户目录避免权限问题
-          nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
-          sleep 5  # 等待连接
+          # 先检查文件是否真的存在（调试用，方便确认）
+          echo "检查 frp 客户端路径：$FRP_ABS_PATH"
+          if [ -f "$FRP_ABS_PATH" ]; then
+            echo "✅ 找到 frp 客户端文件"
+          else
+            echo "❌ 未找到文件！当前目录文件列表："
+            ls -la "$GITHUB_WORKSPACE/.github/workflows/scripts/"  # 列出目录内容，看实际有哪些文件
+            exit 1
+          fi
           
-          # 检查frp是否启动成功
+          # 赋予执行权限
+          chmod +x "$FRP_ABS_PATH"
+          
+          # 启动 frp（用绝对路径）
+          nohup "$FRP_ABS_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
+          sleep 5
+          
+          # 检查启动状态
           if pgrep "$FRP_BIN" >/dev/null; then
             echo "✅ mefrp 启动成功（PID: $(pgrep $FRP_BIN)）"
-            echo "📌 穿透信息：本地 $VNC_PORT 端口 → frp服务器 $FRP_SERVER_PORT 端口"
           else
-            echo "❌ mefrp 启动失败，查看日志：cat ~/frp.log"
+            echo "❌ mefrp 启动失败，日志："
+            cat ~/frp.log
             exit 1
           fi
 
