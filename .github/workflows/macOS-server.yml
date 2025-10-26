@@ -104,23 +104,29 @@ jobs:
           fi
 
       # 7. 保活
-      - name: 保持桌面和 frp 稳定运行
+# 8. 温和保活（避免系统回收，稳定运行6小时）
+      - name: 稳定保活桌面和 frp
         run: |
-          # 重新定义 FRP 绝对路径（保活步骤是独立的，局部变量需重新声明）
           FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
+          echo "===== 保活服务启动 ====="
+          echo "FRP 路径：$FRP_PATH"
+          echo "========================"
           
-          # 单循环即可，去掉嵌套（避免进程被系统判定为异常占用）
+          # 单循环+温和保活：只“启动/维持”进程，不强制重启
           while true; do
-            # 定期重启桌面核心进程（300秒一次，不频繁）
-            sudo launchctl kickstart -k system/com.apple.WindowServer
+            # 温和维持 WindowServer（存在则不操作，不存在才启动）
+            if ! pgrep WindowServer >/dev/null; then
+              echo "⚠️  桌面进程已退出，启动中..."
+              sudo launchctl kickstart -s system/com.apple.WindowServer
+            fi
             
-            # 检查 frp 是否存活，死了就重启
+            # 维持 frp 进程
             if ! pgrep "$FRP_BIN" >/dev/null; then
-              echo "⚠️ frp 进程已退出，正在重启..."
+              echo "⚠️  frp 已退出，重启中..."
               nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
             fi
             
-            # 输出运行状态，方便查看
-            echo "[$(date)] 服务稳定运行中 → 穿透端口：$FRP_SERVER_PORT"
-            sleep 300  # 5分钟一次保活，资源占用低
+            # 高频输出日志（每2分钟一次），让 GitHub 知道 job 还在运行
+            echo "[$(date)] 服务稳定运行 → 穿透端口：$FRP_SERVER_PORT | 桌面进程：$(pgrep WindowServer >/dev/null && echo "运行中" || echo "未运行") | frp 进程：$(pgrep "$FRP_BIN" >/dev/null && echo "运行中" || echo "未运行")"
+            sleep 120  # 2分钟输出一次，避免系统判定“无响应”
           done
