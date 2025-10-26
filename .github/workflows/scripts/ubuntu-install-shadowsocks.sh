@@ -35,19 +35,19 @@ sudo ufw reload
 echo "✅ 已开放22222端口（TCP+UDP）"
 
 # ==============================================
-# 4. 启动Shadowsocks（不依赖systemctl，直接运行核心进程）
+# 4. 启动Shadowsocks（修复日志权限：用用户目录日志）
 # ==============================================
 echo -e "\n===== 启动Shadowsocks ====="
 # 杀死旧进程（避免端口占用）
 sudo pkill -f ss-server || true
-# 后台启动（nohup确保不会被终止）
-nohup ss-server -c "$CONFIG_PATH" > /var/log/ss.log 2>&1 &
+# 日志路径改成用户目录（~/代表当前用户目录，有写入权限）
+nohup ss-server -c "$CONFIG_PATH" > ~/ss.log 2>&1 &
 sleep 3  # 等待启动
 # 验证是否启动成功
 if pgrep ss-server >/dev/null; then
     echo "✅ Shadowsocks启动成功（PID: $(pgrep ss-server)）"
 else
-    echo "❌ Shadowsocks启动失败，查看日志：cat /var/log/ss.log"
+    echo "❌ Shadowsocks启动失败，查看日志：cat ~/ss.log"
     exit 1
 fi
 
@@ -71,13 +71,13 @@ else
     exit 1
 fi
 
-# 启动frp（端口55555，和.yml里的代理信息一致）
-nohup "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 124913 > /var/log/frp.log 2>&1 &
+# 启动frp（日志也用用户目录，避免权限问题）
+nohup "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 55555 > ~/frp.log 2>&1 &
 sleep 3
 if pgrep "$FRP_BIN" >/dev/null; then
     echo "✅ frp隧道启动成功（PID: $(pgrep $FRP_BIN)）"
 else
-    echo "❌ frp启动失败，查看日志：cat /var/log/frp.log"
+    echo "❌ frp启动失败，查看日志：cat ~/frp.log"
     exit 1
 fi
 
