@@ -75,7 +75,7 @@ else
 fi
 
 # 启动frp（日志用用户目录，避免权限问题）
-nohup "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 55555 > ~/frp.log 2>&1 &
+nohup "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 124913 > ~/frp.log 2>&1 &
 sleep 3
 if pgrep "$FRP_BIN" >/dev/null; then
     echo "✅ frp隧道启动成功（PID: $(pgrep $FRP_BIN)）"
