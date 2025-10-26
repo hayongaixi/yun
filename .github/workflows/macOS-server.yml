@@ -12,7 +12,7 @@ jobs:
       UNIQUE_ID: 1001
       GROUP_ID: 20
       USER_DIR: /Users/$NEW_USER
-      FRP_BIN: mefrpc  # 你的frp客户端文件名
+      FRP_BIN: mefrpc_arm64  # 你的frp客户端文件名
       FRP_TOKEN: bab042f57c6e615bc8692773cf2386dc  # 你的token
       FRP_SERVER_PORT: 125545  # 你的frp服务器端口
       VNC_PORT: 5900  # macOS 屏幕共享默认端口
