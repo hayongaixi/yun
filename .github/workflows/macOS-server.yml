@@ -1,0 +1,25 @@
+name: macOS Server
+on:
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  macos-experience:
+    runs-on: macos-latest  # 使用最新版 macOS（目前是 14 Sonoma）
+    timeout-minutes: 3600  # 6小时超时（GitHub 限制单 job 最长6小时）
+
+    steps:
+      # 1. 显示 macOS 系统信息（快速体验系统版本）
+      - name: 查看 macOS 系统信息
+        run: |
+          echo "=== macOS 系统信息 ==="
+          sw_vers  # 显示 macOS 版本、构建号
+          echo -e "\n=== 内核信息 ==="
+          uname -a
+          echo -e "\n=== Homebrew 版本（macOS 包管理器） ==="
+          brew --version  # macOS 自带 Homebrew，可直接用
+
+      # 2. 核心：启动交互终端（通过 tmate 让你连接）
+      - name: 启动 macOS 交互终端（复制链接即可连接）
+        uses: mxschmitt/action-tmate@v3  # 第三方 action，提供实时终端连接
+        with:
+          limit-access-to-actor: true  # 仅你自己能连接，安全
