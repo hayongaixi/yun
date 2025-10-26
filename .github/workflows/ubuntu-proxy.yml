@@ -1,0 +1,35 @@
+name: Ubuntu Proxy Server
+on:
+  workflow_dispatch:
+
+jobs:
+  ubuntu-proxy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3600  # 1小时保活，可按需调整
+
+    steps:
+      # 1. 仅更新APT（必要步骤）
+      - name: Update APT
+        run: sudo apt-get update -y
+
+      # 2. 拉取仓库（因为脚本在仓库里）
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 3. 核心步骤：安装Shadowsocks+frp（唯一需要的功能）
+      - name: Install Proxy (Shadowsocks + frp)
+        run: bash .github/workflows/scripts/ubuntu-install-shadowsocks.sh
+
+      # 4. 保活：让runner不退出（代理持续在线）
+      - name: Keep Proxy Alive
+        run: |
+          echo "=== 代理连接信息（请复制到本地客户端） ==="
+          echo "服务器地址：156.231.141.29:55555"  # 和frp端口一致
+          echo "密码：Pass@Word1"
+          echo "加密方式：chacha20-ietf-poly1305"
+          echo "======================================="
+          # 无限循环保活
+          while true; do
+            echo "[$(date)] 代理运行正常...";
+            sleep 300;
+          done
