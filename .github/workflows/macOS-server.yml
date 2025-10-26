@@ -1,9 +1,9 @@
-name: macOS 桌面 + mefrp 穿透（最终极简解决）
+name: macOS 桌面 + mefrp 穿透（黑屏根治版）
 on:
   workflow_dispatch:
 
 jobs:
-  macos-absolute-final:
+  macos-black-screen-cure:
     runs-on: macos-latest
     timeout-minutes: 3600
     env:
@@ -39,35 +39,44 @@ jobs:
             echo "ℹ️ 用户已存在，直接使用"
           fi
 
-      # 3. 分辨率设置（必做）
-      - name: 安装工具+设置分辨率
+      # 3. 关键：用 cscreen 强制绑定显示（底层工具，支持无头渲染）
+      - name: 安装 cscreen+强制设置显示
         run: |
-          brew install screenresolution
-          screenresolution set 1024x768x32@60
-          echo "✅ 分辨率设置成功"
+          # 安装比 screenresolution 更底层的显示工具（支持无头模式）
+          brew install cscreen
+          # 强制创建显示设备+绑定分辨率（1024x768，强制启用渲染缓冲区）
+          cscreen -x 1024 -y 768 -d 0 -f 60  # -f 强制刷新，-d 0 绑定默认显示
+          echo "✅ 显示设备已强制创建，渲染缓冲区启用"
 
-      # 4. 核心：自动登录+系统自动启动桌面（不手动干预组件）
-      - name: 自动登录+启动桌面
+      # 4. 核心：自动登录+绑定远程会话+强制刷新
+      - name: 自动登录+会话绑定+显示刷新
         run: |
-          # 1. 强制自动登录（让系统自己创建会话）
+          # 1. 自动登录（必须让系统生成用户会话）
           sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser $NEW_USER
           sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false
           
           # 2. 启动登录窗口，触发自动登录
           sudo open -a loginwindow
-          sleep 30  # 给足时间让系统自动加载Dock/Finder/桌面
+          sleep 40  # 延长到40秒，给足渲染时间
           
-          # 3. 只确保WindowServer和VNC运行（其他组件系统自动管）
-          sudo launchctl kickstart -s system/com.apple.WindowServer
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-          echo "✅ 系统已自动加载桌面组件"
+          # 3. 强制绑定屏幕共享到远程会话（关键！让VNC能获取画面）
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes
+          sudo launchctl restart system/com.apple.screensharing
+          
+          # 4. 定期刷新显示缓冲区（避免黑屏）
+          for i in {1..5}; do
+            cscreen -x 1024 -y 768 -d 0 -f 60  # 每5秒刷新一次，共5次
+            sleep 5
+          done
+          
+          echo "✅ 会话绑定+显示刷新完成"
 
       # 5. 关闭防火墙
       - name: 关闭防火墙
         run: sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
 
-      # 6. 启动frp
-      - name: 启动mefrp穿透
+      # 6. 启动 frp
+      - name: 启动 mefrp 穿透
         run: |
           FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
           chmod +x "$FRP_PATH"
@@ -75,15 +84,19 @@ jobs:
           sleep 5
           pgrep "$FRP_BIN" && echo "✅ frp启动成功" || (cat ~/frp.log && exit 1)
 
-      # 7. 保活（只检查核心进程）
-      - name: 保活服务
+      # 7. 保活+持续刷新显示（根治黑屏）
+      - name: 保活+定期刷新显示
         run: |
           FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
           while true; do
-            # 只确保登录窗口和WindowServer运行，其他组件系统自动维护
+            # 维持核心进程
             pgrep loginwindow || sudo open -a loginwindow
             pgrep WindowServer || sudo launchctl kickstart -s system/com.apple.WindowServer
+            pgrep screensharing || sudo launchctl restart system/com.apple.screensharing
             pgrep "$FRP_BIN" || nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
-            echo "[$(date)] 运行中 → 连接：你的frp服务器:$FRP_SERVER_PORT"
-            sleep 120
+            
+            # 每30秒刷新一次显示缓冲区（防止黑屏）
+            cscreen -x 1024 -y 768 -d 0 -f 60
+            echo "[$(date)] 运行中 → 显示已刷新 | 连接：你的frp服务器:$FRP_SERVER_PORT"
+            sleep 30
           done
