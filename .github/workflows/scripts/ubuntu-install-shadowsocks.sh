@@ -1,22 +1,23 @@
 #!/bin/bash
-# 极简版：仅启动Shadowsocks+frp隧道，不依赖systemctl
+# 稳定版：用 systemctl 管理 Shadowsocks + frp 隧道
 set -e
 
 # ==============================================
-# 1. 安装必要依赖（仅Shadowsocks+frp所需）
+# 1. 安装依赖（Shadowsocks+frp+系统工具）
 # ==============================================
 echo -e "\n===== 安装依赖 ====="
-sudo apt install -y shadowsocks-libev net-tools ufw  # ufw用于开放端口
+sudo apt install -y shadowsocks-libev net-tools ufw
+echo "✅ 依赖安装完成"
 
 # ==============================================
-# 2. 配置Shadowsocks（本地端口22222，frp转发用）
+# 2. 配置 Shadowsocks（和之前一致，确保监听所有IP）
 # ==============================================
 CONFIG_PATH="/etc/shadowsocks-libev/config.json"
 sudo tee "$CONFIG_PATH" << EOF
 {
-    "server":["0.0.0.0"],  # 监听所有本地IP，允许frp转发
+    "server":["0.0.0.0"],
     "mode":"tcp_and_udp",
-    "server_port":22222,   # 本地端口（frp要转发的端口）
+    "server_port":22222,
     "local_port":1080,
     "password":"Pass@Word1",
     "timeout":86400,
@@ -26,7 +27,7 @@ EOF
 echo "✅ Shadowsocks配置完成"
 
 # ==============================================
-# 3. 开放防火墙（关键！允许frp访问22222端口）
+# 3. 开放防火墙（必须，让frp能访问22222端口）
 # ==============================================
 echo -e "\n===== 开放防火墙端口 ====="
 sudo ufw allow 22222/tcp
@@ -35,19 +36,22 @@ sudo ufw reload
 echo "✅ 已开放22222端口（TCP+UDP）"
 
 # ==============================================
-# 4. 启动Shadowsocks（修复日志权限：用用户目录日志）
+# 4. 用 systemctl 启动 Shadowsocks（核心修复）
 # ==============================================
-echo -e "\n===== 启动Shadowsocks ====="
-# 杀死旧进程（避免端口占用）
-sudo pkill -f ss-server || true
-# 日志路径改成用户目录（~/代表当前用户目录，有写入权限）
-nohup ss-server -c "$CONFIG_PATH" > ~/ss.log 2>&1 &
-sleep 3  # 等待启动
-# 验证是否启动成功
-if pgrep ss-server >/dev/null; then
-    echo "✅ Shadowsocks启动成功（PID: $(pgrep ss-server)）"
+echo -e "\n===== 启动Shadowsocks服务 ====="
+# 重启服务（确保配置生效，避免旧进程占用）
+sudo systemctl restart shadowsocks-libev
+# 验证服务状态（systemctl 自动守护进程，崩溃会重启）
+if sudo systemctl is-active --quiet shadowsocks-libev; then
+    echo "✅ Shadowsocks服务启动成功（systemctl管理）"
+    # 验证端口是否监听（确认服务真的在工作）
+    if sudo netstat -tulpn | grep -q 22222; then
+        echo "✅ 22222端口已监听"
+    else
+        echo "⚠️  服务启动成功，但端口未监听，查看日志：sudo journalctl -u shadowsocks-libev"
+    fi
 else
-    echo "❌ Shadowsocks启动失败，查看日志：cat ~/ss.log"
+    echo "❌ Shadowsocks服务启动失败，查看日志：sudo journalctl -u shadowsocks-libev"
     exit 1
 fi
 
@@ -55,9 +59,8 @@ fi
 # 5. 启动frp隧道（转发22222到frp服务器55555端口）
 # ==============================================
 echo -e "\n===== 启动frp隧道 ====="
-FRP_BIN="mefrpc"  # 你的frp客户端文件名（必须和仓库里一致）
+FRP_BIN="mefrpc"
 FRP_PATH=".github/workflows/scripts/$FRP_BIN"
-# 绝对路径兜底（防止相对路径找不到）
 ABS_FRP_PATH="/home/runner/work/$(basename $GITHUB_REPOSITORY)/$(basename $GITHUB_REPOSITORY)/$FRP_PATH"
 
 # 查找并启动frp
@@ -71,7 +74,7 @@ else
     exit 1
 fi
 
-# 启动frp（日志也用用户目录，避免权限问题）
+# 启动frp（日志用用户目录，避免权限问题）
 nohup "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 55555 > ~/frp.log 2>&1 &
 sleep 3
 if pgrep "$FRP_BIN" >/dev/null; then
@@ -81,4 +84,8 @@ else
     exit 1
 fi
 
-echo -e "\n===== 代理服务已全部启动！====="
+echo -e "\n===== 代理服务全部启动完成！====="
+echo "📌 本地连接配置："
+echo "   服务器地址：156.231.141.29:55555"
+echo "   密码：Pass@Word1"
+echo "   加密方式：chacha20-ietf-poly1305"
