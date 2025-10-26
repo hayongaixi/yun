@@ -1,9 +1,9 @@
-name: macOS 桌面 + mefrp 穿透（最终无错版）
+name: macOS 桌面 + mefrp 穿透（终极解决版）
 on:
   workflow_dispatch:
 
 jobs:
-  macos-final-no-error:
+  macos-ultimate:
     runs-on: macos-latest
     timeout-minutes: 3600
     env:
@@ -15,13 +15,13 @@ jobs:
       VNC_PORT: 5900
 
     steps:
-      # 1. 克隆仓库（必选）
+      # 1. 克隆仓库
       - name: 克隆仓库
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. 创建用户（不清理，避免报错）
+      # 2. 创建/复用用户
       - name: 创建/复用用户
         run: |
           if ! dscl . -read /Users/$NEW_USER &> /dev/null; then
@@ -39,17 +39,17 @@ jobs:
             echo "ℹ️ 用户已存在，直接使用"
           fi
 
-      # 3. 关键修复：自动适配可用分辨率（不硬编码，避免报错）
-      - name: 安装工具+自动设置分辨率
+      # 3. 关键修复：用完整参数设置分辨率（带色深和刷新率）
+      - name: 安装工具+设置可用分辨率
         run: |
-          brew install screenresolution  # 安装工具
-          echo "列出所有可用分辨率："
-          screenresolution list  # 显示支持的模式，避免瞎猜
-          # 选兼容性最高的 1024x768（所有虚拟显示器都支持），不指定色深
-          screenresolution set 1024x768
-          echo "✅ 分辨率设置成功（1024x768，自动适配色深）"
+          brew install screenresolution
+          echo "可用分辨率列表："
+          screenresolution list  # 确认可用模式
+          # 用列表中明确存在的模式：1024x768x32@60（完整参数，工具能解析）
+          screenresolution set 1024x768x32@60
+          echo "✅ 分辨率设置成功（1024x768x32@60，完全匹配可用模式）"
 
-      # 4. 启动桌面+VNC（极简）
+      # 4. 启动桌面+VNC
       - name: 启动桌面和VNC
         run: |
           sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser $NEW_USER
