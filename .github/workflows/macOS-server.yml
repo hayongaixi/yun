@@ -1,159 +1,40 @@
-name: macOS 桌面 + mefrp 穿透（完整版·最终修复）
-on:
-  workflow_dispatch:
-
-jobs:
-  macos-with-frp:
-    runs-on: macos-latest
-    timeout-minutes: 3600
-    env:
-      NEW_USER: macuser
-      NEW_PASS: Mac@1234
-      UNIQUE_ID: 1001
-      GROUP_ID: 20
-      USER_DIR: /Users/$NEW_USER
-      FRP_BIN: mefrpc_arm64
-      FRP_TOKEN: bab042f57c6e615bc8692773cf2386dc
-      FRP_SERVER_PORT: 125545
-      VNC_PORT: 5900
-
-    steps:
-      # 最关键的一步：克隆仓库代码到 runner（必须加！）
-      - name: 克隆仓库代码（获取所有文件）
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      # 1. 验证仓库是否被正确克隆（调试用）
-      - name: 确认仓库文件已拉取
-        run: |
-          echo "当前工作目录：$GITHUB_WORKSPACE"
-          echo "查看仓库根目录文件："
-          ls -la "$GITHUB_WORKSPACE"
-          echo "查看 .github 目录："
-          ls -la "$GITHUB_WORKSPACE/.github"
-          echo "查看 .github/workflows 目录："
-          ls -la "$GITHUB_WORKSPACE/.github/workflows"
-          echo "查看 scripts 目录（若存在）："
-          ls -la "$GITHUB_WORKSPACE/.github/workflows/scripts" 2>/dev/null
-
-      # 2. 清理旧用户
-      - name: 清理旧用户残留
-        run: |
-          if dscl . -read /Users/$NEW_USER &> /dev/null; then
-            sudo dscl . -delete /Users/$NEW_USER
-            sudo rm -rf $USER_DIR
-          fi
-
-      # 3. 创建新用户
-      - name: 创建新用户
-        run: |
-          sudo dscl . -create /Users/$NEW_USER
-          sudo dscl . -create /Users/$NEW_USER UserShell /bin/bash
-          sudo dscl . -create /Users/$NEW_USER RealName "macOS User"
-          sudo dscl . -create /Users/$NEW_USER UniqueID $UNIQUE_ID
-          sudo dscl . -create /Users/$NEW_USER PrimaryGroupID $GROUP_ID
-          sudo dscl . -create /Users/$NEW_USER NFSHomeDirectory $USER_DIR
-          sudo dscl . -passwd /Users/$NEW_USER $NEW_PASS
-          sudo mkdir -p $USER_DIR
-          sudo chown -R $NEW_USER:staff $USER_DIR
-          sudo dseditgroup -o edit -a $NEW_USER -t user admin
-          echo "✅ 新用户创建成功"
-
-      # 新增：配置虚拟显示器（解决黑屏核心步骤）
-      - name: 配置虚拟显示器（1280x800）
-        run: |
-          # 强制 macOS 识别虚拟显示器并分配分辨率
-          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionEnabled -bool true
-          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionWidth -int 1280
-          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionHeight -int 800
-          # 修复语法：用 kickstart -k 重启服务（macOS 标准语法）
-          sudo launchctl kickstart -k system/com.apple.WindowServer
-          sleep 10
-          echo "✅ 虚拟显示器配置完成，分辨率 1280x800"
-
-      # 优化：启动桌面+自动登录+VNC（解决登录窗口卡住问题）
-      - name: 启动桌面+自动登录+VNC服务
-        run: |
-          # 配置新用户自动登录（跳过登录窗口）
-          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser $NEW_USER
-          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false
-          
-          # 修复语法：用 kickstart -k 重启服务
-          sudo launchctl kickstart -k system/com.apple.loginwindow
-          sudo launchctl kickstart -k system/com.apple.WindowServer
-          sleep 30  # 延长等待，确保桌面完全渲染
-          
-          # 验证桌面核心组件（WindowServer+Dock，确保不是只启动指针）
-          if pgrep WindowServer && pgrep loginwindow && pgrep Dock; then
-            echo "✅ 桌面已完全加载（含Dock栏）"
-          else
-            echo "⚠️  桌面组件未加载完全，重试一次"
-            sudo launchctl kickstart -k system/com.apple.WindowServer
-            sleep 15
-          fi
-          
-          # 启用并确认VNC服务
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-          sudo dscl . -create /Users/$NEW_USER RemoteManagementEnabled true
-          echo "✅ VNC服务已启用，端口：$VNC_PORT"
-
-      # 5. 关闭防火墙
-      - name: 关闭防火墙
-        run: |
-          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
-          echo "✅ 防火墙已关闭，穿透无端口拦截"
-
-      # 6. 启动 mefrp 穿透
-      - name: 启动 mefrp 穿透
-        run: |
-          FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
-          
-          echo "===== 路径检查 ====="
-          echo "FRP 文件路径：$FRP_PATH"
-          if [ -f "$FRP_PATH" ]; then
-            echo "✅ 找到 frp 客户端文件"
-          else
-            echo "❌ 仍未找到文件！scripts 目录内容："
-            ls -la "$GITHUB_WORKSPACE/.github/workflows/scripts" 2>/dev/null
-            exit 1
-          fi
-          
-          chmod +x "$FRP_PATH"
-          nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
-          sleep 5
-          
-          if pgrep "$FRP_BIN" >/dev/null; then
-            echo "✅ mefrp 启动成功（PID: $(pgrep $FRP_BIN)）"
-            echo "📌 穿透路径：macOS $VNC_PORT 端口 → frp 服务器 $FRP_SERVER_PORT 端口"
-          else
-            echo "❌ mefrp 启动失败，日志："
-            cat ~/frp.log
-            exit 1
-          fi
-
-      # 7. 稳定保活（避免系统回收+维持进程）
-      - name: 稳定保活桌面和 frp
-        run: |
-          FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
-          echo "===== 保活服务启动 ====="
-          echo "FRP 路径：$FRP_PATH"
-          echo "========================"
-          
-          while true; do
-            # 温和维持桌面进程（用 kickstart -s 启动，不强制重启）
-            if ! pgrep WindowServer >/dev/null; then
-              echo "⚠️  桌面进程已退出，启动中..."
-              sudo launchctl kickstart -s system/com.apple.WindowServer
-            fi
-            
-            # 维持 frp 进程
-            if ! pgrep "$FRP_BIN" >/dev/null; then
-              echo "⚠️  frp 已退出，重启中..."
-              nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
-            fi
-            
-            # 高频输出状态，避免job被回收
-            echo "[$(date)] 服务稳定运行 → 穿透端口：$FRP_SERVER_PORT | 桌面：$(pgrep WindowServer >/dev/null && echo "运行中" || echo "未运行") | frp：$(pgrep "$FRP_BIN" >/dev/null && echo "运行中" || echo "未运行")"
-            sleep 120
-          done
+- name: 配置虚拟显示器（1280x800，温和生效）
+  run: |
+    # 1. 确保配置文件目录可写
+    sudo chmod 644 /Library/Preferences/com.apple.windowserver.plist 2>/dev/null
+    
+    # 2. 写入分辨率配置（分步骤执行，避免批量操作触发系统保护）
+    echo "设置分辨率开关..."
+    sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionEnabled -bool true
+    sleep 2
+    
+    echo "设置宽度..."
+    sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionWidth -int 1280
+    sleep 2
+    
+    echo "设置高度..."
+    sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionHeight -int 800
+    sleep 2
+    
+    # 3. 验证配置是否写入成功（关键：确认配置生效基础）
+    echo "验证配置..."
+    if [ "$(sudo defaults read /Library/Preferences/com.apple.windowserver.plist DisplayResolutionWidth 2>/dev/null)" -eq 1280 ] && \
+       [ "$(sudo defaults read /Library/Preferences/com.apple.windowserver.plist DisplayResolutionHeight 2>/dev/null)" -eq 800 ]; then
+      echo "✅ 分辨率配置写入成功"
+    else
+      echo "❌ 配置写入失败，尝试手动设置..."
+      # 备选方案：直接修改plist二进制文件（极端情况）
+      sudo plutil -replace DisplayResolutionWidth -int 1280 /Library/Preferences/com.apple.windowserver.plist
+      sudo plutil -replace DisplayResolutionHeight -int 800 /Library/Preferences/com.apple.windowserver.plist
+    fi
+    
+    # 4. 温和重启WindowServer（先停止再启动，给系统释放资源时间）
+    echo "重启窗口服务器..."
+    if pgrep WindowServer >/dev/null; then
+      sudo launchctl bootout system/com.apple.WindowServer  # 先停止
+      sleep 5  # 等待资源释放
+    fi
+    sudo launchctl bootstrap system/com.apple.WindowServer  # 再启动
+    sleep 15  # 延长等待，确保完全启动
+    
+    echo "✅ 虚拟显示器配置完成，分辨率 1280x800"
