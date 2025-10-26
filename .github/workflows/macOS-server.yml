@@ -1,9 +1,9 @@
-name: macOS 桌面 + mefrp 穿透（终极终极解决）
+name: macOS 桌面 + mefrp 穿透（最终极简解决）
 on:
   workflow_dispatch:
 
 jobs:
-  macos-final-ultimate:
+  macos-absolute-final:
     runs-on: macos-latest
     timeout-minutes: 3600
     env:
@@ -39,38 +39,32 @@ jobs:
             echo "ℹ️ 用户已存在，直接使用"
           fi
 
-      # 3. 安装工具+设置分辨率
+      # 3. 分辨率设置（必做）
       - name: 安装工具+设置分辨率
         run: |
           brew install screenresolution
           screenresolution set 1024x768x32@60
           echo "✅ 分辨率设置成功"
 
-      # 4. 核心修复：模拟登录触发会话+启用共享（绕开gui域）
-      - name: 启动桌面+触发用户会话
+      # 4. 核心：自动登录+系统自动启动桌面（不手动干预组件）
+      - name: 自动登录+启动桌面
         run: |
-          # 1. 强制启用屏幕共享（忽略警告，已激活即可）
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -users $NEW_USER -privs -all -restart -agent -menu 2>/dev/null
+          # 1. 强制自动登录（让系统自己创建会话）
+          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser $NEW_USER
+          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false
           
-          # 2. 模拟用户登录（触发gui会话创建，关键！）
-          sudo -u $NEW_USER open -a loginwindow  # 以macuser身份打开登录窗口，自动登录
-          sleep 20  # 等待会话生成
+          # 2. 启动登录窗口，触发自动登录
+          sudo open -a loginwindow
+          sleep 30  # 给足时间让系统自动加载Dock/Finder/桌面
           
-          # 3. 启动桌面核心组件（不用绑定gui域，会话已存在）
-          sudo -u $NEW_USER launchctl kickstart -s gui/$(id -u $NEW_USER)/com.apple.Dock
-          sudo -u $NEW_USER launchctl kickstart -s gui/$(id -u $NEW_USER)/com.apple.Finder
+          # 3. 只确保WindowServer和VNC运行（其他组件系统自动管）
           sudo launchctl kickstart -s system/com.apple.WindowServer
-          
-          # 4. 再次确认VNC服务
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-          sleep 20
-          echo "✅ 桌面会话已触发，核心组件启动成功"
+          echo "✅ 系统已自动加载桌面组件"
 
-      # 5. 关闭防火墙+检查端口
-      - name: 关闭防火墙+验证VNC
-        run: |
-          sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
-          lsof -i :$VNC_PORT && echo "✅ VNC端口正在监听" || (sudo launchctl restart system/com.apple.screensharing && echo "⚠️ VNC端口已重启")
+      # 5. 关闭防火墙
+      - name: 关闭防火墙
+        run: sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
 
       # 6. 启动frp
       - name: 启动mefrp穿透
@@ -81,17 +75,15 @@ jobs:
           sleep 5
           pgrep "$FRP_BIN" && echo "✅ frp启动成功" || (cat ~/frp.log && exit 1)
 
-      # 7. 保活（维持会话）
+      # 7. 保活（只检查核心进程）
       - name: 保活服务
         run: |
           FRP_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
-          USER_UID=$(id -u $NEW_USER)
           while true; do
-            # 维持用户会话和桌面组件
-            pgrep -u $NEW_USER loginwindow || sudo -u $NEW_USER open -a loginwindow
-            pgrep -u $NEW_USER Dock || sudo -u $NEW_USER launchctl kickstart -s gui/$USER_UID/com.apple.Dock
+            # 只确保登录窗口和WindowServer运行，其他组件系统自动维护
+            pgrep loginwindow || sudo open -a loginwindow
             pgrep WindowServer || sudo launchctl kickstart -s system/com.apple.WindowServer
             pgrep "$FRP_BIN" || nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
-            echo "[$(date)] 正常运行 → 连接：你的frp服务器:$FRP_SERVER_PORT"
+            echo "[$(date)] 运行中 → 连接：你的frp服务器:$FRP_SERVER_PORT"
             sleep 120
           done
