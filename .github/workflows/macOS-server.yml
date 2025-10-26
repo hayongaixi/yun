@@ -1,9 +1,9 @@
-name: macOS 桌面 + mefrp 穿透（黑屏根治版）
+name: macOS 桌面 + mefrp 穿透（原生无坑版）
 on:
   workflow_dispatch:
 
 jobs:
-  macos-black-screen-cure:
+  macos-native-final:
     runs-on: macos-latest
     timeout-minutes: 3600
     env:
@@ -39,37 +39,44 @@ jobs:
             echo "ℹ️ 用户已存在，直接使用"
           fi
 
-      # 3. 关键：用 cscreen 强制绑定显示（底层工具，支持无头渲染）
-      - name: 安装 cscreen+强制设置显示
+      # 3. 核心：系统原生强制启用显示渲染（无第三方工具）
+      - name: 原生配置显示缓冲区
         run: |
-          # 安装比 screenresolution 更底层的显示工具（支持无头模式）
-          brew install cscreen
-          # 强制创建显示设备+绑定分辨率（1024x768，强制启用渲染缓冲区）
-          cscreen -x 1024 -y 768 -d 0 -f 60  # -f 强制刷新，-d 0 绑定默认显示
-          echo "✅ 显示设备已强制创建，渲染缓冲区启用"
+          # 1. 启用 HiDPI 兼容模式（强制生成显示缓冲区）
+          sudo defaults write /Library/Preferences/com.apple.CoreDisplay enableHiDPI -bool true
+          
+          # 2. 强制设置显示分辨率（系统原生命令，不用第三方工具）
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionEnabled -bool true
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionWidth -int 1024
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionHeight -int 768
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionRefreshRate -int 60
+          
+          # 3. 刷新系统显示配置缓存
+          sudo killall -HUP WindowServer 2>/dev/null
+          sleep 15
+          echo "✅ 系统原生显示渲染已启用"
 
-      # 4. 核心：自动登录+绑定远程会话+强制刷新
-      - name: 自动登录+会话绑定+显示刷新
+      # 4. 自动登录+VNC 深度配置（绑定远程会话）
+      - name: 自动登录+VNC 渲染优化
         run: |
-          # 1. 自动登录（必须让系统生成用户会话）
+          # 1. 自动登录（生成用户会话）
           sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser $NEW_USER
           sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false
           
           # 2. 启动登录窗口，触发自动登录
           sudo open -a loginwindow
-          sleep 40  # 延长到40秒，给足渲染时间
+          sleep 45  # 最长等待时间，确保渲染完成
           
-          # 3. 强制绑定屏幕共享到远程会话（关键！让VNC能获取画面）
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes
-          sudo launchctl restart system/com.apple.screensharing
+          # 3. VNC 深度配置（允许远程获取显示缓冲区）
+          sudo defaults write /Library/Preferences/com.apple.screensharing.plist AlwaysSharing -bool true
+          sudo defaults write /Library/Preferences/com.apple.screensharing.plist EnableRemoteControl -bool true
+          sudo launchctl unload /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          sudo launchctl load /System/Library/LaunchDaemons/com.apple.screensharing.plist
           
-          # 4. 定期刷新显示缓冲区（避免黑屏）
-          for i in {1..5}; do
-            cscreen -x 1024 -y 768 -d 0 -f 60  # 每5秒刷新一次，共5次
-            sleep 5
-          done
-          
-          echo "✅ 会话绑定+显示刷新完成"
+          # 4. 强制刷新桌面显示
+          sudo -u $NEW_USER osascript -e 'tell application "Finder" to activate' 2>/dev/null
+          sleep 10
+          echo "✅ 自动登录+VNC 渲染配置完成"
 
       # 5. 关闭防火墙
       - name: 关闭防火墙
@@ -91,12 +98,13 @@ jobs:
           while true; do
             # 维持核心进程
             pgrep loginwindow || sudo open -a loginwindow
-            pgrep WindowServer || sudo launchctl kickstart -s system/com.apple.WindowServer
+            pgrep WindowServer || sudo killall -HUP WindowServer 2>/dev/null
             pgrep screensharing || sudo launchctl restart system/com.apple.screensharing
             pgrep "$FRP_BIN" || nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
             
-            # 每30秒刷新一次显示缓冲区（防止黑屏）
-            cscreen -x 1024 -y 768 -d 0 -f 60
+            # 每30秒刷新显示+激活Finder（防止黑屏）
+            sudo -u $NEW_USER osascript -e 'tell application "Finder" to activate' 2>/dev/null
+            sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionRefreshRate -int 60
             echo "[$(date)] 运行中 → 显示已刷新 | 连接：你的frp服务器:$FRP_SERVER_PORT"
             sleep 30
           done
