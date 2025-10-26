@@ -59,8 +59,8 @@ jobs:
       - name: install shadowsocks and frp
         run: bash .github/workflows/scripts/ubuntu-install-shadowsocks.sh
         
-      - name: Restore systemctl hooks
-        run: bash .github/workflows/scripts/restore-systemctl.sh
+#      - name: Restore systemctl hooks
+#        run: bash .github/workflows/scripts/restore-systemctl.sh
 
       - name: Keep Connection Alive
         run: |
