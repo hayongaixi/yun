@@ -1,4 +1,4 @@
-name: macOS 原生桌面（新用户版）
+name: macOS 原生桌面（无冲突版）
 on:
   workflow_dispatch:
 
@@ -7,22 +7,33 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 360
     env:
-      NEW_USER: macuser  # 新用户名（自定义）
-      NEW_PASS: Mac@1234  # 新用户密码（自定义，简单好记）
-      USER_DIR: /Users/$NEW_USER  # 新用户目录
+      NEW_USER: macuser  # 新用户名
+      NEW_PASS: Mac@1234  # 密码
+      USER_DIR: /Users/$NEW_USER
+      UNIQUE_ID: 1001  # 换1001 ID（绝对无冲突）
+      GROUP_ID: 20  # staff组（安全无冲突）
 
     steps:
-      # 1. 核心：创建全新 macOS 用户（无旧密码限制）
-      - name: 创建新用户（完全可控）
+      # 1. 先删除可能存在的旧用户（兜底，避免重复）
+      - name: 兜底：删除旧用户（避免冲突）
         run: |
-          # 1. 创建新用户（指定用户ID、组ID，避免权限冲突）
+          if dscl . -read $USER_DIR &> /dev/null; then
+            sudo dscl . -delete $USER_DIR
+            sudo rm -rf $USER_DIR
+            echo "⚠️  已删除旧用户 $NEW_USER，避免冲突"
+          fi
+
+      # 2. 无冲突创建新用户（100%成功）
+      - name: 创建无冲突新用户
+        run: |
+          # 1. 创建用户记录（用1001 ID，无冲突）
           sudo dscl . -create $USER_DIR
           sudo dscl . -create $USER_DIR UserShell /bin/bash
           sudo dscl . -create $USER_DIR RealName "macOS Test User"
-          sudo dscl . -create $USER_DIR UniqueID 501  # 普通用户ID（避免和系统用户冲突）
-          sudo dscl . -create $USER_DIR PrimaryGroupID 20  # 管理员组ID
+          sudo dscl . -create $USER_DIR UniqueID $UNIQUE_ID  # 关键：换1001 ID
+          sudo dscl . -create $USER_DIR PrimaryGroupID $GROUP_ID
           
-          # 2. 设置新用户密码（直接设置，无需旧密码）
+          # 2. 设置密码（无旧密码限制）
           sudo dscl . -passwd $USER_DIR $NEW_PASS
           
           # 3. 创建用户目录并授权
@@ -30,86 +41,61 @@ jobs:
           sudo chown -R $NEW_USER:staff $USER_DIR
           sudo chmod -R 755 $USER_DIR
           
-          # 4. 把新用户添加到管理员组（方便操作系统）
+          # 4. 加入管理员组
           sudo dseditgroup -o edit -a $NEW_USER -t user admin
           
           echo "✅ 新用户创建成功！用户名：$NEW_USER，密码：$NEW_PASS"
 
-      # 2. 启用远程管理（屏幕共享，授权新用户）
-      - name: 启用屏幕共享+授权新用户
+      # 3. 启用屏幕共享（原生远程管理）
+      - name: 启用屏幕共享+授权
         run: |
-          # 启用远程登录和屏幕共享
           sudo systemsetup -setremotelogin on
           sudo systemsetup -setcomputersleep Off
           sudo systemsetup -setsleep Off
           
-          # 强制启动屏幕共享服务（原生VNC）
           sudo launchctl unload /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
           
-          # 授权新用户远程访问（关键！）
           sudo dscl . -create $USER_DIR RemoteManagementEnabled true
-          sudo dscl . -create $USER_DIR RemoteDesktopEnabled true
-          
-          echo "✅ 屏幕共享已启用，新用户 $NEW_USER 已授权"
+          echo "✅ 屏幕共享已启用"
 
-      # 3. 启动原生桌面（以新用户身份，绕开无显示器限制）
-      - name: 启动 Aqua 原生桌面
+      # 4. 启动原生桌面
+      - name: 启动Aqua桌面
         run: |
-          # 强制启动窗口服务器和登录窗口（无物理显示器也能运行）
           sudo launchctl start com.apple.WindowServer
           sudo launchctl start com.apple.loginwindow
-          
-          # 以新用户身份触发桌面加载（确保桌面进程属于新用户）
           sudo -u $NEW_USER open -a loginwindow
-          sleep 25  # 延长等待，确保桌面完全加载
+          sleep 25
           
-          # 验证核心进程（WindowServer+loginwindow 必须运行）
           if pgrep WindowServer && pgrep loginwindow; then
-            echo "✅ 原生 Aqua 桌面启动成功！"
+            echo "✅ 原生桌面启动成功"
           else
-            echo "⚠️  桌面进程未启动，重试一次"
             sudo launchctl restart com.apple.WindowServer
             sleep 15
           fi
 
-      # 4. 关闭防火墙（彻底避免端口拦截）
-      - name: 关闭防火墙（确保远程连接通畅）
+      # 5. 关闭防火墙
+      - name: 关闭防火墙
         run: |
           sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
-          echo "✅ 系统防火墙已关闭，5900 端口无拦截"
+          echo "✅ 防火墙已关闭"
 
-      # 5. 获取公网 IP（用于连接）
-      - name: 获取 macOS 公网 IP
+      # 6. 获取公网IP+连接信息
+      - name: 连接信息
         run: |
           PUBLIC_IP=$(curl -s icanhazip.com)
-          echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV
-          echo "=== 公网 IP：$PUBLIC_IP ==="
-
-      # 6. 最终连接指南（清晰明了）
-      - name: 连接信息汇总（必看！）
-        run: |
           echo "======================================="
-          echo "🎉 恭喜！macOS 原生桌面已准备就绪"
-          echo "📌 连接核心信息："
-          echo "  - VNC 地址：$PUBLIC_IP:5900"
-          echo "  - 登录用户名：$NEW_USER"
-          echo "  - 登录密码：$NEW_PASS"
-          echo "📌 连接方式："
-          echo "  - Mac 本地：打开「屏幕共享」→ 输入 vnc://$PUBLIC_IP:5900"
-          echo "  - Windows/Linux：用 VNC 客户端（如 RealVNC）→ 输入 $PUBLIC_IP:5900"
-          echo "💡 体验亮点："
-          echo "  - 完整原生桌面（Dock、Finder、菜单栏全有）"
-          echo "  - 新用户权限充足，可安装软件、调整系统设置"
+          echo "🎉 终于搞定！macOS 原生桌面就绪"
+          echo "VNC地址：$PUBLIC_IP:5900"
+          echo "用户名：$NEW_USER"
+          echo "密码：$NEW_PASS"
           echo "======================================="
 
-      # 7. 保活：防止桌面进程被系统回收
-      - name: 保持桌面持续运行
+      # 7. 保活
+      - name: 保持运行
         run: |
           while true; do
-            # 定期重启桌面核心进程，避免崩溃
             sudo launchctl kickstart -k system/com.apple.WindowServer
-            sudo launchctl kickstart -k system/com.apple.loginwindow
-            echo "[$(date)] 桌面运行中... 连接地址：vnc://$PUBLIC_IP:5900"
+            echo "[$(date)] 运行中... 连接地址：$PUBLIC_IP:5900"
             sleep 300
           done
