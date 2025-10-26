@@ -1,25 +1,28 @@
-name: macOS Server
+name: macOS ssh Server
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
 
 jobs:
   macos-experience:
-    runs-on: macos-latest  # 使用最新版 macOS（目前是 14 Sonoma）
-    timeout-minutes: 3600  # 6小时超时（GitHub 限制单 job 最长6小时）
+    runs-on: macos-latest
+    timeout-minutes: 360
 
     steps:
-      # 1. 显示 macOS 系统信息（快速体验系统版本）
-      - name: 查看 macOS 系统信息
+      # 1. 自动生成临时 SSH 密钥对（无需手动配置）
+      - name: 生成临时 SSH 密钥
         run: |
-          echo "=== macOS 系统信息 ==="
-          sw_vers  # 显示 macOS 版本、构建号
-          echo -e "\n=== 内核信息 ==="
-          uname -a
-          echo -e "\n=== Homebrew 版本（macOS 包管理器） ==="
-          brew --version  # macOS 自带 Homebrew，可直接用
+          # 生成无密码的临时密钥对（仅本次会话有效）
+          ssh-keygen -t ed25519 -N "" -f ~/tmp_ssh_key -C "temporary-macos-key"
+          # 将公钥添加到授权列表（允许用该密钥连接）
+          cat ~/tmp_ssh_key.pub >> ~/.ssh/authorized_keys
+          chmod 600 ~/.ssh/authorized_keys
+          # 输出私钥内容（用户需要复制这个私钥到本地）
+          echo "=== 临时 SSH 私钥（复制到本地文件，如 C:\tmp_ssh_key） ==="
+          cat ~/tmp_ssh_key
+          echo -e "\n=== 保存后，用以下命令连接 ==="
 
-      # 2. 核心：启动交互终端（通过 tmate 让你连接）
-      - name: 启动 macOS 交互终端（复制链接即可连接）
-        uses: mxschmitt/action-tmate@v3  # 第三方 action，提供实时终端连接
+      # 2. 启动 tmate 终端（开放连接，不限制仅actor）
+      - name: 启动 macOS 终端（复制下方链接/命令连接）
+        uses: mxschmitt/action-tmate@v3
         with:
-          limit-access-to-actor: true  # 仅你自己能连接，安全
+          limit-access-to-actor: false  # 关闭限制，允许用临时密钥连接
