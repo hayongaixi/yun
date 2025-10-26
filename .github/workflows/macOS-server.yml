@@ -61,36 +61,59 @@ jobs:
           echo "✅ 防火墙已关闭，$VNC_PORT 端口开放"
 
       # 5. 启动 mefrp 穿透（核心：把5900端口转发到frp服务器）
-      - name: 启动 mefrp 内网穿透（绝对路径修复）
+      - name: 启动 mefrp 穿透（复用 Ubuntu 逻辑+适配 macOS）
         run: |
-          # 关键：用 GITHUB_WORKSPACE 获取仓库根目录绝对路径
-          FRP_ABS_PATH="$GITHUB_WORKSPACE/.github/workflows/scripts/$FRP_BIN"
+          FRP_BIN="mefrpc_arm64"  # 明确指定你的arm64文件名
+          FRP_PATH=".github/workflows/scripts/$FRP_BIN"
           
-          # 先检查文件是否真的存在（调试用，方便确认）
-          echo "检查 frp 客户端路径：$FRP_ABS_PATH"
-          if [ -f "$FRP_ABS_PATH" ]; then
-            echo "✅ 找到 frp 客户端文件"
+          # 复用 Ubuntu 中的绝对路径计算方式（兼容 macOS）
+          REPO_NAME=$(basename "$GITHUB_REPOSITORY")  # 获取仓库名（如 yun）
+          ABS_FRP_PATH="/Users/runner/work/$REPO_NAME/$REPO_NAME/$FRP_PATH"  # macOS runner 路径格式
+          
+          echo "===== 路径调试信息 ====="
+          echo "仓库名：$REPO_NAME"
+          echo "相对路径：$FRP_PATH"
+          echo "绝对路径：$ABS_FRP_PATH"
+          echo "GITHUB_WORKSPACE：$GITHUB_WORKSPACE"
+          echo "------------------------"
+          echo "查看 .github/workflows/ 目录内容："
+          ls -la "$GITHUB_WORKSPACE/.github/workflows/"  # 确认是否有 scripts 目录
+          echo "------------------------"
+          echo "查看 scripts 目录（若存在）："
+          ls -la "$GITHUB_WORKSPACE/.github/workflows/scripts/" 2>/dev/null  # 列出 scripts 下的文件
+          echo "========================="
+          
+          # 查找文件（先试相对路径，再试绝对路径）
+          if [ -f "$FRP_PATH" ]; then
+              echo "✅ 相对路径找到文件：$FRP_PATH"
+              chmod +x "$FRP_PATH"
+          elif [ -f "$ABS_FRP_PATH" ]; then
+              echo "✅ 绝对路径找到文件：$ABS_FRP_PATH"
+              FRP_PATH="$ABS_FRP_PATH"
+              chmod +x "$FRP_PATH"
           else
-            echo "❌ 未找到文件！当前目录文件列表："
-            ls -la "$GITHUB_WORKSPACE/.github/workflows/scripts/"  # 列出目录内容，看实际有哪些文件
-            exit 1
+              echo "❌ 未找到 $FRP_BIN！可能原因："
+              echo "1. 文件未提交到当前分支（检查 git status）"
+              echo "2. 文件名大小写不匹配（macOS runner 大小写敏感）"
+              echo "3. 路径错误（实际路径见上方调试信息）"
+              exit 1
           fi
           
-          # 赋予执行权限
-          chmod +x "$FRP_ABS_PATH"
-          
-          # 启动 frp（用绝对路径）
-          nohup "$FRP_ABS_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
+          # 启动 frp
+          nohup "$FRP_PATH" -t "$FRP_TOKEN" -p "$FRP_SERVER_PORT" > ~/frp.log 2>&1 &
           sleep 5
           
           # 检查启动状态
           if pgrep "$FRP_BIN" >/dev/null; then
-            echo "✅ mefrp 启动成功（PID: $(pgrep $FRP_BIN)）"
+              echo "✅ mefrp 启动成功（PID: $(pgrep $FRP_BIN)）"
           else
-            echo "❌ mefrp 启动失败，日志："
-            cat ~/frp.log
-            exit 1
+              echo "❌ mefrp 启动失败，日志："
+              cat ~/frp.log
+              exit 1
           fi
+        env:
+          FRP_TOKEN: bab042f57c6e615bc8692773cf2386dc
+          FRP_SERVER_PORT: 125545
 
       # 6. 输出最终连接指南
       - name: 连接信息汇总（必看！）
