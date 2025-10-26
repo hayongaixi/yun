@@ -56,6 +56,8 @@ jobs:
           vncserver -kill :0 || true
           vncserver :0 -localhost no -geometry 1280x800 -depth 24 -xstartup ~/.vnc/xstartup
 
+      - name: install shadowsocks
+        run: bash .github/workflows/scripts/ubuntu-install-ss.sh
 
       - name: install frp
         run: bash .github/workflows/scripts/ubuntu-install-ss.sh
