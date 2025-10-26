@@ -37,7 +37,7 @@ jobs:
           Write-Host "==================`n"
           while ($true) {
             # 保活逻辑也完全用你原有的命令
-            $frpProcess = Get-Process "mefrpc" -ErrorAction SilentlyContinue
+            $frpProcess = Get-Process "frpc" -ErrorAction SilentlyContinue
             if (-not $frpProcess) {
               Write-Host "[$(Get-Date)] frp 进程已退出，重启中..."
               & .github/workflows/scripts/mefrpc.exe -t bab042f57c6e615bc8692773cf2386dc -p 124829 > $null 2>&1 &
