@@ -65,7 +65,7 @@ jobs:
       - name: Keep Connection Alive
         run: |
           echo "=== PROXY ACCESS INFORMATION ==="
-          echo "Address: 156.231.141.29:30000"
+          echo "Address: 156.231.141.29:11451"
           echo "Password: Pass@Word1"
           echo "method: chacha20-ietf-poly1305"
           echo "=============================="
