@@ -1,76 +1,84 @@
 #!/bin/bash
-# 功能：安装 shadowsocks-libev + 配置服务 + 启动 frp 客户端
-set -e  # 遇到错误立即退出
+# 极简版：仅启动Shadowsocks+frp隧道，不依赖systemctl
+set -e
 
 # ==============================================
-# 1. 安装 shadowsocks-libev
+# 1. 安装必要依赖（仅Shadowsocks+frp所需）
 # ==============================================
-echo -e "\n===== 开始安装 shadowsocks-libev ====="
-sudo apt update -y
-sudo apt install shadowsocks-libev -y
-echo "✅ shadowsocks-libev 安装完成"
+echo -e "\n===== 安装依赖 ====="
+sudo apt install -y shadowsocks-libev net-tools ufw  # ufw用于开放端口
 
 # ==============================================
-# 2. 配置文件写入（必须用 sudo tee，否则权限不足）
+# 2. 配置Shadowsocks（本地端口22222，frp转发用）
 # ==============================================
-echo -e "\n===== 配置 shadowsocks-libev ====="
 CONFIG_PATH="/etc/shadowsocks-libev/config.json"
-
-# 备份原有配置（若存在）
-if [ -f "$CONFIG_PATH" ]; then
-    sudo cp "$CONFIG_PATH" "${CONFIG_PATH}.bak"
-    echo "📋 已备份原有配置到 ${CONFIG_PATH}.bak"
-fi
-
-# 关键：用 sudo tee 写入，绝对不能用 sudo cat >
 sudo tee "$CONFIG_PATH" << EOF
 {
-    "server":["::1", "0.0.0.0"],
+    "server":["0.0.0.0"],  # 监听所有本地IP，允许frp转发
     "mode":"tcp_and_udp",
-    "server_port":22222,
+    "server_port":22222,   # 本地端口（frp要转发的端口）
     "local_port":1080,
     "password":"Pass@Word1",
     "timeout":86400,
     "method":"chacha20-ietf-poly1305"
 }
 EOF
-
-echo "✅ 配置文件已更新：$CONFIG_PATH"
-cat "$CONFIG_PATH"
+echo "✅ Shadowsocks配置完成"
 
 # ==============================================
-# 3. 重启服务
+# 3. 开放防火墙（关键！允许frp访问22222端口）
 # ==============================================
-echo -e "\n===== 重启 shadowsocks-libev 服务 ====="
-sudo systemctl restart shadowsocks-libev
-if sudo systemctl is-active --quiet shadowsocks-libev; then
-    echo "✅ shadowsocks-libev 服务已启动"
+echo -e "\n===== 开放防火墙端口 ====="
+sudo ufw allow 22222/tcp
+sudo ufw allow 22222/udp
+sudo ufw reload
+echo "✅ 已开放22222端口（TCP+UDP）"
+
+# ==============================================
+# 4. 启动Shadowsocks（不依赖systemctl，直接运行核心进程）
+# ==============================================
+echo -e "\n===== 启动Shadowsocks ====="
+# 杀死旧进程（避免端口占用）
+sudo pkill -f ss-server || true
+# 后台启动（nohup确保不会被终止）
+nohup ss-server -c "$CONFIG_PATH" > /var/log/ss.log 2>&1 &
+sleep 3  # 等待启动
+# 验证是否启动成功
+if pgrep ss-server >/dev/null; then
+    echo "✅ Shadowsocks启动成功（PID: $(pgrep ss-server)）"
 else
-    echo "❌ shadowsocks-libev 服务启动失败"
+    echo "❌ Shadowsocks启动失败，查看日志：cat /var/log/ss.log"
     exit 1
 fi
 
 # ==============================================
-# 4. 启动 frp 客户端（适配 GitHub Actions 路径）
+# 5. 启动frp隧道（转发22222到frp服务器55555端口）
 # ==============================================
-echo -e "\n===== 启动 frp 客户端 ====="
-FRP_PATH=".github/workflows/scripts/mefrpc"
+echo -e "\n===== 启动frp隧道 ====="
+FRP_BIN="mefrpc"  # 你的frp客户端文件名（必须和仓库里一致）
+FRP_PATH=".github/workflows/scripts/$FRP_BIN"
+# 绝对路径兜底（防止相对路径找不到）
 ABS_FRP_PATH="/home/runner/work/$(basename $GITHUB_REPOSITORY)/$(basename $GITHUB_REPOSITORY)/$FRP_PATH"
 
-# 路径检测 + 执行权限
+# 查找并启动frp
 if [ -f "$FRP_PATH" ]; then
     chmod +x "$FRP_PATH"
-    echo "✅ 找到 frp 客户端（相对路径）"
 elif [ -f "$ABS_FRP_PATH" ]; then
     FRP_PATH="$ABS_FRP_PATH"
     chmod +x "$FRP_PATH"
-    echo "✅ 找到 frp 客户端（绝对路径）"
 else
-    echo "❌ 未找到 frp 客户端，跳过启动（不影响 shadowsocks 使用）"
-    exit 0  # 若 frp 非必需，可改为 exit 0 避免脚本失败
+    echo "❌ 未找到frp客户端（文件名为$FRP_BIN），请确认路径和文件名"
+    exit 1
 fi
 
-# 后台启动 frp
-nohup sh -c "$FRP_PATH -t bab042f57c6e615bc8692773cf2386dc -p 124913" > /dev/null 2>&1 &
-echo "✅ frp 客户端已后台启动"
-echo -e "\n===== 所有操作执行完成！====="
+# 启动frp（端口55555，和.yml里的代理信息一致）
+nohup "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 55555 > /var/log/frp.log 2>&1 &
+sleep 3
+if pgrep "$FRP_BIN" >/dev/null; then
+    echo "✅ frp隧道启动成功（PID: $(pgrep $FRP_BIN)）"
+else
+    echo "❌ frp启动失败，查看日志：cat /var/log/frp.log"
+    exit 1
+fi
+
+echo -e "\n===== 代理服务已全部启动！====="
