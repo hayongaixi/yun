@@ -1,84 +1,65 @@
-name: macOS 原生桌面（最终正确版）
+name: macOS 原生桌面（完美运行版）
 on:
   workflow_dispatch:
 
 jobs:
   macos-native-desktop:
     runs-on: macos-latest
-    timeout-minutes: 360
+    timeout-minutes: 360  # 6小时超时，足够体验
     env:
       NEW_USER: macuser
       NEW_PASS: Mac@1234
-      UNIQUE_ID: 1001  # 无冲突ID
+      UNIQUE_ID: 1001
       GROUP_ID: 20
       USER_DIR: /Users/$NEW_USER
 
     steps:
-      # 1. 兜底删除旧残留（彻底清干净）
-      - name: 彻底删除旧用户/目录（避免任何冲突）
+      # 1. 彻底清理旧用户残留
+      - name: 清理旧用户
         run: |
-          # 先删用户记录
           if dscl . -read /Users/$NEW_USER &> /dev/null; then
             sudo dscl . -delete /Users/$NEW_USER
-            echo "⚠️  已删除旧用户记录"
+            echo "已删除旧用户记录"
           fi
-          # 再删用户目录
           if [ -d "$USER_DIR" ]; then
             sudo rm -rf "$USER_DIR"
-            echo "⚠️  已删除旧用户目录"
+            echo "已删除旧用户目录"
           fi
 
-      # 2. 正确顺序创建用户（系统必识别）
-      - name: 按macOS规范创建新用户（步骤完全正确）
+      # 2. 正确创建新用户（系统必识别）
+      - name: 创建新用户
         run: |
-          #  Step1：先创建用户记录（系统先认用户）
           sudo dscl . -create /Users/$NEW_USER
           sudo dscl . -create /Users/$NEW_USER UserShell /bin/bash
           sudo dscl . -create /Users/$NEW_USER RealName "macOS Test User"
           sudo dscl . -create /Users/$NEW_USER UniqueID $UNIQUE_ID
           sudo dscl . -create /Users/$NEW_USER PrimaryGroupID $GROUP_ID
-          sudo dscl . -create /Users/$NEW_USER NFSHomeDirectory $USER_DIR  # 关键：告诉系统用户目录位置
-          
-          #  Step2：设置密码（完善用户信息）
+          sudo dscl . -create /Users/$NEW_USER NFSHomeDirectory $USER_DIR
           sudo dscl . -passwd /Users/$NEW_USER $NEW_PASS
-          
-          #  Step3：此时系统已识别用户，再创建目录并授权（不会报非法用户）
           sudo mkdir -p $USER_DIR
           sudo chown -R $NEW_USER:staff $USER_DIR
-          sudo chmod -R 755 $USER_DIR
-          
-          #  Step4：加入管理员组
           sudo dseditgroup -o edit -a $NEW_USER -t user admin
-          
-          echo "✅ 新用户创建成功！用户名：$NEW_USER，密码：$NEW_PASS"
-          echo "✅ 系统已识别该用户，无非法用户名错误"
+          echo "✅ 新用户创建成功：$NEW_USER"
 
-      # 3. 启用屏幕共享（原生远程管理）
-      - name: 启用屏幕共享
+      # 3. 启用屏幕共享
+      - name: 启用远程管理
         run: |
           sudo systemsetup -setremotelogin on
           sudo systemsetup -setcomputersleep Off
-          sudo systemsetup -setsleep Off
-          
-          sudo launchctl unload /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-          
           sudo dscl . -create /Users/$NEW_USER RemoteManagementEnabled true
           echo "✅ 屏幕共享已启用"
 
       # 4. 启动原生桌面
-      - name: 启动Aqua原生桌面
+      - name: 启动Aqua桌面
         run: |
           sudo launchctl start com.apple.WindowServer
-          sudo launchctl start com.apple.loginwindow
           sudo -u $NEW_USER open -a loginwindow
           sleep 25
-          
-          if pgrep WindowServer && pgrep loginwindow; then
-            echo "✅ 原生桌面启动成功"
+          if pgrep WindowServer; then
+            echo "✅ 桌面启动成功"
           else
             sudo launchctl restart com.apple.WindowServer
-            sleep 15
           fi
 
       # 5. 关闭防火墙
@@ -87,23 +68,30 @@ jobs:
           sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off
           echo "✅ 防火墙已关闭"
 
-      # 6. 连接信息
-      - name: 最终连接指南
+      # 6. 获取公网IP（关键：确保变量正确传递）
+      - name: 获取公网IP并保存
+        id: get_ip  # 用id标记，方便后续引用
         run: |
           PUBLIC_IP=$(curl -s icanhazip.com)
+          echo "PUBLIC_IP=$PUBLIC_IP" >> $GITHUB_ENV  # 写入环境变量
+          echo "公网IP：$PUBLIC_IP"  # 显示IP，方便手动记录
+
+      # 7. 显示连接信息（提前展示，避免保活步骤变量问题）
+      - name: 连接信息（必记！）
+        run: |
           echo "======================================="
-          echo "🎉 历经千辛万苦！macOS 原生桌面就绪"
-          echo "VNC地址：$PUBLIC_IP:5900"
+          echo "🎉 macOS 原生桌面已准备好！"
+          echo "VNC地址：$PUBLIC_IP:5900"  # 这里先显示，确保用户能看到
           echo "用户名：$NEW_USER"
           echo "密码：$NEW_PASS"
           echo "======================================="
-          echo "💡 这次绝对能连！连接后是完整原生桌面"
 
-      # 7. 保活
-      - name: 保持运行
+      # 8. 保活（简化循环，直接用获取到的IP）
+      - name: 保持桌面运行
         run: |
+          # 直接用环境变量中的IP，避免嵌套循环
           while true; do
             sudo launchctl kickstart -k system/com.apple.WindowServer
-            echo "[$(date)] 运行中... 连接地址：$PUBLIC_IP:5900"
+            echo "[$(date)] 桌面运行中... 连接地址：$PUBLIC_IP:5900"
             sleep 300
           done
