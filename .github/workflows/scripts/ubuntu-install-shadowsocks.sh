@@ -60,7 +60,7 @@ fi
 # ==============================================
 echo -e "\n===== 启动frp隧道 ====="
 FRP_BIN="frpc"
-FRP_PATH=".github/workflows/scripts/$FRP_BIN"
+FRP_PATH=".github/workflows/scripts/linux-frp/$FRP_BIN"
 ABS_FRP_PATH="/home/runner/work/$(basename $GITHUB_REPOSITORY)/$(basename $GITHUB_REPOSITORY)/$FRP_PATH"
 
 # 查找并启动frp
