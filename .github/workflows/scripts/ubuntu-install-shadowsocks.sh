@@ -59,7 +59,7 @@ fi
 # 5. 启动frp隧道（转发22222到frp服务器55555端口）
 # ==============================================
 echo -e "\n===== 启动frp隧道 ====="
-FRP_BIN="mefrpc"
+FRP_BIN="frpc"
 FRP_PATH=".github/workflows/scripts/$FRP_BIN"
 ABS_FRP_PATH="/home/runner/work/$(basename $GITHUB_REPOSITORY)/$(basename $GITHUB_REPOSITORY)/$FRP_PATH"
 
@@ -75,7 +75,7 @@ else
 fi
 
 # 启动frp（日志用用户目录，避免权限问题）
-nohup "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 124913 > ~/frp.log 2>&1 &
+nohup "$FRP_PATH" -u e5f3b2fd3ee47a506aad0926f45957de -p 147511 > ~/frp.log 2>&1 &
 sleep 3
 if pgrep "$FRP_BIN" >/dev/null; then
     echo "✅ frp隧道启动成功（PID: $(pgrep $FRP_BIN)）"
