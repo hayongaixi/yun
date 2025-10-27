@@ -75,7 +75,7 @@ else
 fi
 
 # 启动frp（日志用用户目录，避免权限问题）
-nohup "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 124913 > ~/frp.log 2>&1 &
+nohup "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 125802 > ~/frp.log 2>&1 &
 sleep 3
 if pgrep "$FRP_BIN" >/dev/null; then
     echo "✅ frp隧道启动成功（PID: $(pgrep $FRP_BIN)）"
@@ -86,6 +86,6 @@ fi
 
 echo -e "\n===== 代理服务全部启动完成！====="
 echo "📌 本地连接配置："
-echo "   服务器地址：156.231.141.29:55555"
+echo "   服务器地址：154.40.43.170:55555"
 echo "   密码：Pass@Word1"
 echo "   加密方式：chacha20-ietf-poly1305"
