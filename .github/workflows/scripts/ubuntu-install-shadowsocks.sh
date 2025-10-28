@@ -75,7 +75,7 @@ else
 fi
 
 # 启动frp（日志用用户目录，避免权限问题）
-nohup "$FRP_PATH" -t 4df782e4881fb043438bd4a192cb7753 -p 126108 & "$FRP_PATH" -t 4df782e4881fb043438bd4a192cb7753 -p 126109 & "$FRP_PATH" -t 4df782e4881fb043438bd4a192cb7753 -p 126120 & "$FRP_PATH" -t 4df782e4881fb043438bd4a192cb7753 -p 126121                                                              & "$FRP_PATH" -t 4df782e4881fb043438bd4a192cb7753 -p 126129 & "$FRP_PATH" -t 4df782e4881fb043438bd4a192cb7753 -p 126130 & "$FRP_PATH" -t 4df782e4881fb043438bd4a192cb7753 -p 126131 > ~/frp.log 2>&1 &
+nohup "$FRP_PATH" -t 4df782e4881fb043438bd4a192cb7753 -p 126108 & "$FRP_PATH" -t 4df782e4881fb043438bd4a192cb7753 -p 126109 & "$FRP_PATH" -t 4df782e4881fb043438bd4a192cb7753 -p 126120 & "$FRP_PATH" -t 4df782e4881fb043438bd4a192cb7753 -p 126121 & "$FRP_PATH" -t 4df782e4881fb043438bd4a192cb7753 -p 126129 & "$FRP_PATH" -t 4df782e4881fb043438bd4a192cb7753 -p 126130 & "$FRP_PATH" -t 4df782e4881fb043438bd4a192cb7753 -p 126131 & "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 126204 & "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 126207 & "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 126208 & "$FRP_PATH" -t bab042f57c6e615bc8692773cf2386dc -p 126209 > ~/frp.log 2>&1 &
 sleep 3
 if pgrep "$FRP_BIN" >/dev/null; then
     echo "✅ frp隧道启动成功（PID: $(pgrep $FRP_BIN)）"
