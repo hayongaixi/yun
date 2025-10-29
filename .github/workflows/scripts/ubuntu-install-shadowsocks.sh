@@ -63,6 +63,10 @@ FRP_BIN="mefrpc"
 FRP_PATH=".github/workflows/scripts/$FRP_BIN"
 ABS_FRP_PATH="/home/runner/work/$(basename $GITHUB_REPOSITORY)/$(basename $GITHUB_REPOSITORY)/$FRP_PATH"
 
+LOCYAN_FRP_BIN="frpc"
+LOCYAN_FRP_PATH=".github/workflows/scripts/linux-frp/$LOCYAN_FRP_BIN"
+LOCYAN_ABS_FRP_PATH="/home/runner/work/$(basename $GITHUB_REPOSITORY)/$(basename $GITHUB_REPOSITORY)/$LOCYAN_FRP_PATH"
+
 # 查找并启动frp
 if [ -f "$FRP_PATH" ]; then
     chmod +x "$FRP_PATH"
@@ -71,6 +75,16 @@ elif [ -f "$ABS_FRP_PATH" ]; then
     chmod +x "$FRP_PATH"
 else
     echo "❌ 未找到frp客户端（文件名为$FRP_BIN），请确认路径和文件名"
+    exit 1
+fi
+
+if [ -f "$LOCYAN_FRP_PATH" ]; then
+    chmod +x "$LOCYAN_FRP_PATH"
+elif [ -f "$LOCYAN_ABS_FRP_PATH" ]; then
+    LOCYAN_FRP_PATH="$LOCYAN_ABS_FRP_PATH"
+    chmod +x "$LOCYAN_FRP_PATH"
+else
+    echo "❌ 未找到LOCYAN_frp客户端（文件名为$LOCYAN_FRP_BIN），请确认路径和文件名"
     exit 1
 fi
 
@@ -84,8 +98,17 @@ else
     exit 1
 fi
 
+nohup "$LOCYAN_FRP_PATH" -u aab8dbcbc045f9976c5ec81f238d9256 -p 147707 & "$LOCYAN_FRP_PATH" -u aab8dbcbc045f9976c5ec81f238d9256 -p 147708 & "$LOCYAN_FRP_PATH" -u aab8dbcbc045f9976c5ec81f238d9256 -p 147709 & "$LOCYAN_FRP_PATH" -u aab8dbcbc045f9976c5ec81f238d9256 -p 147710 & "$LOCYAN_FRP_PATH"  -u aab8dbcbc045f9976c5ec81f238d9256 -p 147711 & "$LOCYAN_FRP_PATH" -u aab8dbcbc045f9976c5ec81f238d9256 -p 147712 & "$LOCYAN_FRP_PATH"-u aab8dbcbc045f9976c5ec81f238d9256 -p 147713 > ~/LOCYAN_frp.log 2>&1 &
+sleep 3
+if pgrep "$LOCYAN_FRP_BIN" >/dev/null; then
+    echo "✅ frp隧道启动成功（PID: $(pgrep $LOCYAN_FRP_BIN)）"
+else
+    echo "❌ frp启动失败，查看日志：cat ~/LOCYAN_frp.log"
+    exit 1
+fi
+
 echo -e "\n===== 代理服务全部启动完成！====="
 echo "📌 本地连接配置："
-echo "   服务器地址：156.231.141.29:55555"
+echo "   服务器地址：（一大堆，懒得列出）"
 echo "   密码：Pass@Word1"
 echo "   加密方式：chacha20-ietf-poly1305"
