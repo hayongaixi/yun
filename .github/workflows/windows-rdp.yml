@@ -24,23 +24,22 @@ jobs:
         shell: pwsh
         run: |
           # 100% 保留你原来能用的命令，只加 "&" 让它后台运行不阻塞步骤
-          & .github/workflows/scripts/frpc -u e5f3b2fd3ee47a506aad0926f45957de -p 147421 > $null 2>&1 &
+          & .github/workflows/scripts/frpc -u 475365ac5965b544c7487e3ef463923aae67e378 -p 6457 > $null 2>&1 &
           Start-Sleep -Seconds 5  # 等待启动完成
 
       - name: Maintain Connection
         shell: pwsh
         run: |
           Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: 156.231.141.29:33890"
-          Write-Host "Username: vum"
-          Write-Host "Password: $(echo $env:RDP_CREDS)"
+          Write-Host "Address: hk-1.lcf.im:33899"
+          Write-Host "$(echo $env:RDP_CREDS)"
           Write-Host "==================`n"
           while ($true) {
             # 保活逻辑也完全用你原有的命令
             $frpProcess = Get-Process "frpc" -ErrorAction SilentlyContinue
             if (-not $frpProcess) {
               Write-Host "[$(Get-Date)] frp 进程已退出，重启中..."
-              & .github/workflows/scripts/frpc -u e5f3b2fd3ee47a506aad0926f45957de -p 147421 > $null 2>&1 &
+              & .github/workflows/scripts/frpc -u 475365ac5965b544c7487e3ef463923aae67e378 -p 6457 > $null 2>&1 &
             }
             Write-Host "[$(Get-Date)] RDP Active - Use Ctrl+C in workflow to terminate"
             Start-Sleep -Seconds 300
