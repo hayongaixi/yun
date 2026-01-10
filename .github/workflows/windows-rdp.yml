@@ -21,10 +21,10 @@ jobs:
         run: .github/workflows/scripts/win-create-user.ps1
 
       - name: Install frp (完全复刻你原有的命令，仅解决卡住)
-        shell: cmd
+        shell: pwsh
         run: |
           # 100% 保留你原来能用的命令，只加 "&" 让它后台运行不阻塞步骤
-          & .github\workflows\scripts\frpc-yuan.exe -c .github/workflows/scripts/frpc.toml > $null 2>&1 &
+          & .github\workflows\scripts\frpc-yuan.exe -c ./frpc.toml > $null 2>&1 &
           Start-Sleep -Seconds 5  # 等待启动完成
 
       - name: Maintain Connection
