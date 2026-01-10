@@ -24,14 +24,14 @@ jobs:
         shell: pwsh
         run: |
           # 100% 保留你原来能用的命令，只加 "&" 让它后台运行不阻塞步骤
-          & .github/workflows/scripts/frpc-yuan.exe > $null 2>&1 &
+          & .github/workflows/scripts/frpc-yuan.exe -c .github/workflows/scripts/frpc.toml > $null 2>&1 &
           Start-Sleep -Seconds 5  # 等待启动完成
 
       - name: Maintain Connection
         shell: pwsh
         run: |
           Write-Host "`n=== RDP ACCESS ==="
-          Write-Host "Address: hk-1.lcf.im:33899"
+          Write-Host "Address: jp100.frp0.top:30103"
           Write-Host "$(echo $env:RDP_CREDS)"
           Write-Host "==================`n"
           while ($true) {
