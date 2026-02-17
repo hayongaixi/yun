@@ -26,12 +26,12 @@ jobs:
           sudo bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
           echo "✅ Xray 安装完成"
 
-      # 5. 生成 UUID
-      - name: Generate UUID
+      # 5. 使用固定 UUID
+      - name: Set Fixed UUID
         run: |
-          UUID=$(cat /proc/sys/kernel/random/uuid)
+          UUID="77cd32c1-173a-4019-aea1-4dcaea458e6c"
           echo "UUID=$UUID" >> $GITHUB_ENV
-          echo "✅ UUID 生成完成: $UUID"
+          echo "✅ 固定 UUID 设置完成: $UUID"
 
       # 6. 配置 Xray
       - name: Configure Xray
