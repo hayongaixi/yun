@@ -1,0 +1,118 @@
+name: Ubuntu Proxy Server with Cloudflare Tunnel
+on:
+  workflow_dispatch:
+
+jobs:
+  ubuntu-proxy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3600 # 1小时保活，可按需调整
+
+    steps:
+      # 1. 仅更新APT（必要步骤）
+      - name: Update APT
+        run: sudo apt-get update -y
+
+      # 2. 拉取仓库（因为脚本在仓库里）
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 3. 安装依赖
+      - name: Install Dependencies
+        run: sudo apt install -y shadowsocks-libev net-tools ufw
+
+      # 4. 配置 Shadowsocks
+      - name: Configure Shadowsocks
+        run: |
+          CONFIG_PATH="/etc/shadowsocks-libev/config.json"
+          sudo tee "$CONFIG_PATH" << EOF
+          {
+              "server":["0.0.0.0"],
+              "mode":"tcp_and_udp",
+              "server_port":22222,
+              "local_port":1080,
+              "password":"Pass@Word1",
+              "timeout":86400,
+              "method":"chacha20-ietf-poly1305",
+              "dns":false
+          }
+          EOF
+          echo "✅ Shadowsocks配置完成"
+
+      # 5. 开放防火墙
+      - name: Open Firewall Ports
+        run: |
+          sudo ufw allow 22222/tcp
+          sudo ufw allow 22222/udp
+          sudo ufw reload
+          echo "✅ 已开放22222端口（TCP+UDP）"
+
+      # 6. 启动 Shadowsocks
+      - name: Start Shadowsocks
+        run: |
+          # 停止可能存在的旧进程
+          sudo pkill -f ss-server || true
+          sleep 2
+
+          # 启动服务
+          sudo ss-server -c "/etc/shadowsocks-libev/config.json" -t 60 > /dev/null 2>&1 &
+          sleep 5
+
+          # 检查服务状态
+          echo "检查服务状态..."
+          sudo netstat -tulpn || true
+          echo "检查ss-server进程..."
+          sudo ps aux | grep ss-server || true
+
+          if sudo netstat -tulpn | grep -q 22222; then
+              echo "✅ Shadowsocks服务启动成功，22222端口已监听"
+          else
+              echo "❌ Shadowsocks服务启动失败"
+              exit 1
+          fi
+
+      # 7. 安装 Cloudflare Tunnel
+      - name: Install Cloudflare Tunnel
+        run: |
+          # 下载并安装 cloudflared
+          sudo wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb || sudo apt-get install -f -y
+          sudo dpkg -i cloudflared-linux-amd64.deb
+
+          # 验证安装
+          cloudflared --version
+          echo "✅ Cloudflare Tunnel 安装完成"
+
+      # 8. 启动 Cloudflare Tunnel
+      - name: Start Cloudflare Tunnel
+        run: |
+          # 启动 cloudflared 隧道，使用提供的令牌
+          echo "启动 Cloudflare Tunnel..."
+          nohup cloudflared tunnel run --token eyJhIjoiMDM3ZTg1Y2QxYTVlOGQwYWI1Nzk2NjZhZjgzMDBmMzMiLCJ0IjoiMmZhYWFhMDAtOGVhZC00Nzg0LTg3M2ItZGNiZjQ5YTYwZDA1IiwicyI6Ik5UYzRNRFEwWVRFdE9UUXhZeTAwTmpWaExXRmxOVFl0TjJRME0ySTVZamRtWkRjMCJ9 > ~/cloudflared.log 2>&1 &
+          sleep 15
+
+          # 检查隧道状态
+          if pgrep cloudflared >/dev/null; then
+              echo "✅ Cloudflare Tunnel 启动成功"
+              echo "查看日志: cat ~/cloudflared.log"
+          else
+              echo "❌ Cloudflare Tunnel 启动失败"
+              echo "查看日志: cat ~/cloudflared.log"
+              exit 1
+          fi
+
+      # 9. 保活：让runner不退出（代理持续在线）
+      - name: Keep Proxy Alive
+        run: |
+          echo "=== 代理连接信息 ==="
+          echo "服务器地址：通过 Cloudflare Tunnel 提供的域名访问"
+          echo "端口：22222"
+          echo "密码：Pass@Word1"
+          echo "加密方式：chacha20-ietf-poly1305"
+          echo "=================="
+          # 无限循环保活
+          while true; do
+            echo "[$(date)] 代理运行正常..."
+            echo "Cloudflare Tunnel 状态: $(pgrep cloudflared >/dev/null && echo "运行中" || echo "已停止")"
+            echo "Shadowsocks 状态: $(sudo netstat -tulpn | grep -q 22222 && echo "运行中" || echo "已停止")"
+            sleep 300
+          done
