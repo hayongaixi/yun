@@ -64,7 +64,7 @@ FRP_PATH=".github/workflows/scripts/$FRP_BIN"
 ABS_FRP_PATH="/home/runner/work/$(basename $GITHUB_REPOSITORY)/$(basename $GITHUB_REPOSITORY)/$FRP_PATH"
 
 LOCYAN_FRP_BIN="frpc"
-LOCYAN_FRP_PATH=".github/workflows/scripts/linux-frp/$LOCYAN_FRP_BIN"
+LOCYAN_FRP_PATH=".github/workflows/scripts/locyanfrp/$LOCYAN_FRP_BIN"
 LOCYAN_ABS_FRP_PATH="/home/runner/work/$(basename $GITHUB_REPOSITORY)/$(basename $GITHUB_REPOSITORY)/$LOCYAN_FRP_PATH"
 
 # 查找并启动frp
@@ -98,12 +98,14 @@ else
     exit 1
 fi
 
-nohup "$LOCYAN_FRP_PATH" -u aab8dbcbc045f9976c5ec81f238d9256 -p 147707 & "$LOCYAN_FRP_PATH" -u aab8dbcbc045f9976c5ec81f238d9256 -p 147708 & "$LOCYAN_FRP_PATH" -u aab8dbcbc045f9976c5ec81f238d9256 -p 147709 & "$LOCYAN_FRP_PATH" -u aab8dbcbc045f9976c5ec81f238d9256 -p 147710 & "$LOCYAN_FRP_PATH"  -u aab8dbcbc045f9976c5ec81f238d9256 -p 147711 & "$LOCYAN_FRP_PATH" -u aab8dbcbc045f9976c5ec81f238d9256 -p 147712 & "$LOCYAN_FRP_PATH"-u aab8dbcbc045f9976c5ec81f238d9256 -p 147713 > ~/LOCYAN_frp.log 2>&1 &
+# 启动LoCyanFrp隧道
+echo "启动LoCyanFrp隧道..."
+nohup "$LOCYAN_FRP_PATH" -u 744e4d0a41b4273c7f9d6cd604da1b660856549f -t 14638 & "$LOCYAN_FRP_PATH" -u 744e4d0a41b4273c7f9d6cd604da1b660856549f -t 14639 & "$LOCYAN_FRP_PATH" -u 744e4d0a41b4273c7f9d6cd604da1b660856549f -t 14640 & "$LOCYAN_FRP_PATH" -u 744e4d0a41b4273c7f9d6cd604da1b660856549f -t 14641 & "$LOCYAN_FRP_PATH" -u 744e4d0a41b4273c7f9d6cd604da1b660856549f -t 14642 > ~/LOCYAN_frp.log 2>&1 &
 sleep 3
 if pgrep "$LOCYAN_FRP_BIN" >/dev/null; then
-    echo "✅ frp隧道启动成功（PID: $(pgrep $LOCYAN_FRP_BIN)）"
+    echo "✅ LoCyanFrp隧道启动成功（PID: $(pgrep $LOCYAN_FRP_BIN)）"
 else
-    echo "❌ frp启动失败，查看日志：cat ~/LOCYAN_frp.log"
+    echo "❌ LoCyanFrp启动失败，查看日志：cat ~/LOCYAN_frp.log"
     exit 1
 fi
 
