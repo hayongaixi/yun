@@ -21,7 +21,8 @@ sudo tee "$CONFIG_PATH" << EOF
     "local_port":1080,
     "password":"Pass@Word1",
     "timeout":86400,
-    "method":"chacha20-ietf-poly1305"
+    "method":"chacha20-ietf-poly1305",
+    "dns":false
 }
 EOF
 echo "✅ Shadowsocks配置完成"
@@ -43,10 +44,12 @@ echo -e "\n===== 启动Shadowsocks服务 ====="
 sudo pkill -f ss-server || true
 sleep 2
 
-# 直接启动 ss-server，使用配置文件
+# 直接启动 ss-server，使用配置文件，禁用 DNS
 echo "尝试启动Shadowsocks服务..."
-sudo ss-server -c "$CONFIG_PATH" -d daemon -t 60 || true
-sleep 3
+sudo pkill -f ss-server || true
+sleep 2
+sudo ss-server -c "$CONFIG_PATH" -t 60 > /dev/null 2>&1 &
+sleep 5
 
 # 详细检查服务状态
 echo "检查服务状态..."
@@ -58,19 +61,35 @@ sudo ps aux | grep ss-server || true
 if sudo netstat -tulpn | grep -q 22222; then
     echo "✅ Shadowsocks服务启动成功，22222端口已监听"
 else
-    # 尝试另一种启动方式，不使用守护进程模式
-    echo "尝试使用非守护进程模式启动..."
+    # 尝试另一种启动方式，使用完整路径
+    echo "尝试使用完整路径启动..."
     sudo pkill -f ss-server || true
     sleep 2
-    sudo ss-server -c "$CONFIG_PATH" -t 60 > /dev/null 2>&1 &
-    sleep 3
+    sudo /usr/bin/ss-server -c "$CONFIG_PATH" -t 60 > /dev/null 2>&1 &
+    sleep 5
     
     if sudo netstat -tulpn | grep -q 22222; then
         echo "✅ Shadowsocks服务启动成功，22222端口已监听"
     else
-        echo "❌ Shadowsocks服务启动失败"
-        # 即使失败也继续执行，因为我们主要关心frp部分
-        echo "⚠️  继续执行后续步骤..."
+        # 尝试使用更详细的启动命令，显示所有输出
+        echo "尝试使用详细模式启动..."
+        sudo pkill -f ss-server || true
+        sleep 2
+        echo "执行命令: sudo /usr/bin/ss-server -c \"$CONFIG_PATH\" -t 60"
+        sudo /usr/bin/ss-server -c "$CONFIG_PATH" -t 60
+        sleep 2
+        
+        if sudo netstat -tulpn | grep -q 22222; then
+            echo "✅ Shadowsocks服务启动成功，22222端口已监听"
+        else
+            echo "❌ Shadowsocks服务启动失败"
+            echo "详细检查..."
+            sudo which ss-server || true
+            ls -la "$CONFIG_PATH" || true
+            cat "$CONFIG_PATH" || true
+            # 即使失败也继续执行，因为我们主要关心frp部分
+            echo "⚠️  继续执行后续步骤..."
+        fi
     fi
 fi
 
