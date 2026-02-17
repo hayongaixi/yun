@@ -1,0 +1,138 @@
+name: Ubuntu Vless Server with Cloudflare Tunnel
+on:
+  workflow_dispatch:
+
+jobs:
+  ubuntu-proxy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3600 # 1小时保活，可按需调整
+
+    steps:
+      # 1. 仅更新APT（必要步骤）
+      - name: Update APT
+        run: sudo apt-get update -y
+
+      # 2. 拉取仓库（因为脚本在仓库里）
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 3. 安装依赖
+      - name: Install Dependencies
+        run: sudo apt install -y net-tools ufw curl
+
+      # 4. 安装 Xray
+      - name: Install Xray
+        run: |
+          bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+          echo "✅ Xray 安装完成"
+
+      # 5. 生成 UUID
+      - name: Generate UUID
+        run: |
+          UUID=$(cat /proc/sys/kernel/random/uuid)
+          echo "UUID=$UUID" >> $GITHUB_ENV
+          echo "✅ UUID 生成完成: $UUID"
+
+      # 6. 配置 Xray
+      - name: Configure Xray
+        run: |
+          CONFIG_PATH="/usr/local/etc/xray/config.json"
+          sudo tee "$CONFIG_PATH" << EOF
+          {
+            "inbounds": [
+              {
+                "port": 8080,
+                "protocol": "vless",
+                "settings": {
+                  "clients": [
+                    {
+                      "id": "${{ env.UUID }}"
+                    }
+                  ],
+                  "decryption": "none"
+                },
+                "streamSettings": {
+                  "network": "ws",
+                  "wsSettings": {
+                    "path": "/vless"
+                  }
+                }
+              }
+            ],
+            "outbounds": [
+              {
+                "protocol": "freedom"
+              }
+            ]
+          }
+          EOF
+          echo "✅ Xray 配置完成"
+
+      # 7. 开放防火墙
+      - name: Open Firewall Ports
+        run: |
+          sudo ufw allow 8080/tcp
+          sudo ufw reload
+          echo "✅ 已开放8080端口"
+
+      # 8. 启动 Xray
+      - name: Start Xray
+        run: |
+          sudo systemctl restart xray
+          sleep 5
+          if sudo systemctl is-active --quiet xray; then
+              echo "✅ Xray 服务启动成功"
+          else
+              echo "❌ Xray 服务启动失败"
+              exit 1
+          fi
+
+      # 9. 安装 Cloudflare Tunnel
+      - name: Install Cloudflare Tunnel
+        run: |
+          # 下载并安装 cloudflared
+          sudo wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb || sudo apt-get install -f -y
+          sudo dpkg -i cloudflared-linux-amd64.deb
+
+          # 验证安装
+          cloudflared --version
+          echo "✅ Cloudflare Tunnel 安装完成"
+
+      # 10. 启动 Cloudflare Tunnel
+      - name: Start Cloudflare Tunnel
+        run: |
+          # 启动 cloudflared 隧道，使用提供的令牌
+          echo "启动 Cloudflare Tunnel..."
+          nohup cloudflared tunnel run --token eyJhIjoiMDM3ZTg1Y2QxYTVlOGQwYWI1Nzk2NjZhZjgzMDBmMzMiLCJ0IjoiMmZhYWFhMDAtOGVhZC00Nzg0LTg3M2ItZGNiZjQ5YTYwZDA1IiwicyI6Ik5UYzRNRFEwWVRFdE9UUXhZeTAwTmpWaExXRmxOVFl0TjJRME0ySTVZamRtWkRjMCJ9 > ~/cloudflared.log 2>&1 &
+          sleep 15
+
+          # 检查隧道状态
+          if pgrep cloudflared >/dev/null; then
+              echo "✅ Cloudflare Tunnel 启动成功"
+              echo "查看日志: cat ~/cloudflared.log"
+          else
+              echo "❌ Cloudflare Tunnel 启动失败"
+              echo "查看日志: cat ~/cloudflared.log"
+              exit 1
+          fi
+
+      # 11. 保活：让runner不退出（代理持续在线）
+      - name: Keep Proxy Alive
+        run: |
+          echo "=== Vless 代理连接信息 ==="
+          echo "服务器地址：通过 Cloudflare Tunnel 提供的域名访问"
+          echo "端口：443"
+          echo "UUID：${{ env.UUID }}"
+          echo "加密：none"
+          echo "传输协议：ws"
+          echo "路径：/vless"
+          echo "TLS：启用"
+          echo "========================"
+          # 无限循环保活
+          while true; do
+            echo "[$(date)] 代理运行正常..."
+            echo "Cloudflare Tunnel 状态: $(pgrep cloudflared >/dev/null && echo "运行中" || echo "已停止")"
+            echo "Xray 状态: $(sudo systemctl is-active --quiet xray && echo "运行中" || echo "已停止")"
+            sleep 300
+          done
