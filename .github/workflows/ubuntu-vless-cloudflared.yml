@@ -23,7 +23,7 @@ jobs:
       # 4. 安装 Xray
       - name: Install Xray
         run: |
-          bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+          sudo bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
           echo "✅ Xray 安装完成"
 
       # 5. 生成 UUID
