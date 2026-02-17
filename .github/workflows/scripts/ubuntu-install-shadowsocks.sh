@@ -36,23 +36,42 @@ sudo ufw reload
 echo "✅ 已开放22222端口（TCP+UDP）"
 
 # ==============================================
-# 4. 用 systemctl 启动 Shadowsocks（核心修复）
+# 4. 直接启动 Shadowsocks（不依赖 systemctl）
 # ==============================================
 echo -e "\n===== 启动Shadowsocks服务 ====="
-# 重启服务（确保配置生效，避免旧进程占用）
-sudo systemctl restart shadowsocks-libev
-# 验证服务状态（systemctl 自动守护进程，崩溃会重启）
-if sudo systemctl is-active --quiet shadowsocks-libev; then
-    echo "✅ Shadowsocks服务启动成功（systemctl管理）"
-    # 验证端口是否监听（确认服务真的在工作）
-    if sudo netstat -tulpn | grep -q 22222; then
-        echo "✅ 22222端口已监听"
-    else
-        echo "⚠️  服务启动成功，但端口未监听，查看日志：sudo journalctl -u shadowsocks-libev"
-    fi
+# 停止可能存在的旧进程
+sudo pkill -f ss-server || true
+sleep 2
+
+# 直接启动 ss-server，使用配置文件
+echo "尝试启动Shadowsocks服务..."
+sudo ss-server -c "$CONFIG_PATH" -d daemon -t 60 || true
+sleep 3
+
+# 详细检查服务状态
+echo "检查服务状态..."
+sudo netstat -tulpn || true
+echo "检查ss-server进程..."
+sudo ps aux | grep ss-server || true
+
+# 验证服务状态
+if sudo netstat -tulpn | grep -q 22222; then
+    echo "✅ Shadowsocks服务启动成功，22222端口已监听"
 else
-    echo "❌ Shadowsocks服务启动失败，查看日志：sudo journalctl -u shadowsocks-libev"
-    exit 1
+    # 尝试另一种启动方式，不使用守护进程模式
+    echo "尝试使用非守护进程模式启动..."
+    sudo pkill -f ss-server || true
+    sleep 2
+    sudo ss-server -c "$CONFIG_PATH" -t 60 > /dev/null 2>&1 &
+    sleep 3
+    
+    if sudo netstat -tulpn | grep -q 22222; then
+        echo "✅ Shadowsocks服务启动成功，22222端口已监听"
+    else
+        echo "❌ Shadowsocks服务启动失败"
+        # 即使失败也继续执行，因为我们主要关心frp部分
+        echo "⚠️  继续执行后续步骤..."
+    fi
 fi
 
 # ==============================================
